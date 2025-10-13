@@ -9,14 +9,23 @@ import json
 from random import choice, sample, shuffle
 import time
 
-
+# ------------------------------
+# Streamlit Config
+# ------------------------------
 st.set_page_config(page_title="Study Buddy", page_icon="📚", layout="wide")
 
-
+# ------------------------------
+# API Keys (Optional)
+#
 WOLFRAM_APP_ID = "8L5YE636JU" 
+API_ID_2 = "3KRR2XR9J2"
+API_ID_3 = "3J875Y7PL7"
 
-APP_ID_2="3KRR2XR9J2"
+# Open-Meteo is free and requires no key for basic features
 
+# ------------------------------
+# Session State Initialization
+# ------------------------------
 if "topics_today" not in st.session_state:
     st.session_state.topics_today = {}
 if "last_reset" not in st.session_state:
@@ -25,20 +34,32 @@ if "last_reset" not in st.session_state:
 if st.session_state.last_reset != datetime.date.today():
     st.session_state.topics_today = {}
     st.session_state.last_reset = datetime.date.today()
+
+# General Tracking
 if "quiz_score" not in st.session_state:
     st.session_state.quiz_score = 0
 if "quiz_count" not in st.session_state:
     st.session_state.quiz_count = 0
+if "timer_running" not in st.session_state:
+    st.session_state.timer_running = False
+
+# Meditation Tracking
 if "meditation_minutes" not in st.session_state:
-    st.session_state.meditation_minutes = 0
+    # This tracks minutes *today*
+    st.session_state.meditation_minutes = 0 
+if "meditation_history" not in st.session_state:
+    # This tracks all time records: list of {"date": "YYYY-MM-DD", "minutes": N}
+    st.session_state.meditation_history = [] 
+
+# Quiz State
 if "quiz_questions" not in st.session_state:
     st.session_state.quiz_questions = []
 if "quiz_index" not in st.session_state:
     st.session_state.quiz_index = 0
-if "timer_running" not in st.session_state:
-    st.session_state.timer_running = False
 
-
+# ------------------------------
+# CSS for Glowing Inputs and Bold Effects
+# ------------------------------
 st.markdown("""
 <style>
 h1 {
@@ -82,16 +103,18 @@ button:hover {
 </style>
 """, unsafe_allow_html=True)
 
-
+# ------------------------------
+# Helper Functions
+# ------------------------------
 def get_wikipedia_summary(topic):
     try:
-        
+        # Check if topic is a simple single-word greeting/farewell
         if topic in ["Greetings", "History of greetings", "Hello", "Farewell", "Goodbye", "Saying goodbye", "Parting words"]:
             wikipedia.set_lang("en")
             summary = wikipedia.summary(topic, sentences=5) # Use fewer sentences for conversational
             return summary
         
-        
+        # Check cache before hitting API for main topics
         if topic in st.session_state.topics_today:
             return st.session_state.topics_today[topic]
 
@@ -102,7 +125,7 @@ def get_wikipedia_summary(topic):
     except wikipedia.exceptions.PageError:
         return None
     except wikipedia.exceptions.DisambiguationError:
-        
+        # Simple handling for disambiguation by taking the first option
         try:
             suggested_topic = wikipedia.search(topic)[0]
             summary = wikipedia.summary(suggested_topic, sentences=10)
@@ -114,10 +137,10 @@ def get_wikipedia_summary(topic):
         return None
 
 def get_wolfram_result(topic):
-    if not WOLFRAM_APP_ID or WOLFRAM_APP_ID == "3KRR2XR9J2":
+    if not WOLFRAM_APP_ID or WOLFRAM_APP_ID == "YOUR_APP_ID_HERE":
         return None
     try:
-        # 
+        # Wolfram Alpha V1 Simple Result API is great for facts/calculations
         url = f"http://api.wolframalpha.com/v1/result?appid={WOLFRAM_APP_ID}&i={topic}"
         r = requests.get(url, timeout=10)
         if r.status_code == 200 and r.text.strip().lower() != "no result found":
@@ -132,13 +155,16 @@ def fetch_summary(topic):
     if summary:
         return f"**Source: Wikipedia**\n\n{summary}"
     
+    # Try WolframAlpha as a fallback, especially good for math/facts/chemistry
     wolfram = get_wolfram_result(topic)
     if wolfram:
         return f"**Source: WolframAlpha**\n\n{wolfram}"
         
     return "⚠️ Sorry, no relevant data found on Wikipedia or WolframAlpha."
 
+# --- Weather/Location Helper Function (Kept) ---
 def get_open_meteo_weather(city_name):
+    # 1. Geocoding: Use Open-Meteo's geocoding to get lat/lon
     geocode_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_name}&count=1&language=en&format=json"
     
     try:
@@ -149,11 +175,13 @@ def get_open_meteo_weather(city_name):
         if not geo_data.get('results'):
             return "⚠️ City not found in geocoding service."
 
+        # Extract latitude, longitude, and display name
         result = geo_data['results'][0]
         latitude = result['latitude']
         longitude = result['longitude']
         display_name = f"{result.get('name', city_name)}, {result.get('country', '')}"
 
+        # 2. Weather API Call: Get current weather
         weather_url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={latitude}&longitude={longitude}&"
@@ -168,7 +196,9 @@ def get_open_meteo_weather(city_name):
         
         current = weather_data['current']
         
+        # Simple weather code interpretation (Open-Meteo uses WMO codes)
         weather_code = current['weather_code']
+        # Simplified mapping (WMO codes: 0=clear, 1-3=partly cloudy, 51-65=rain, 71-75=snow, 95=thunderstorm)
         weather_description = "Clear Sky ☀️"
         if 1 <= weather_code <= 3:
             weather_description = "Partly Cloudy 🌥️"
@@ -194,7 +224,9 @@ def get_open_meteo_weather(city_name):
         return f"⚠️ An unexpected error occurred: {e}"
 
 
-
+# ------------------------------
+# Conversational / Farewell Inputs
+# ------------------------------
 def get_conversational_response(user_input):
     user_input_lower = user_input.lower().strip()
     if not user_input_lower:
@@ -203,17 +235,21 @@ def get_conversational_response(user_input):
     farewells = ["bye", "goodbye", "see you", "farewell", "good night", "take care"]
     greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]
     
+    # Regex to check for exact word match with word boundaries (\b)
     farewell_regex = r"\b(" + "|".join(re.escape(f) for f in farewells) + r")\b"
     greeting_regex = r"\b(" + "|".join(re.escape(g) for g in greetings) + r")\b"
 
+    # Check for farewell
     if re.search(farewell_regex, user_input_lower):
         topics = ["Farewell", "Goodbye", "Saying goodbye", "Parting words"]
         for topic in topics:
             summary = get_wikipedia_summary(topic)
             if summary:
+                # Using a fixed snippet for consistency with the conversational tone
                 return f"**You said:** {user_input}\n\n**Here's something interesting about farewells:**\nFarewell rituals often symbolize closure and hope for future encounters. They can range from simple waves to elaborate ceremonies, reflecting cultural norms around separation and reunion. {summary.split('.')[0]}."
         return "👋 Goodbye! Take care!"
     
+    # Check for greeting
     elif re.search(greeting_regex, user_input_lower):
         topics = ["Greetings", "History of greetings", "Hello"]
         for topic in topics:
@@ -226,11 +262,14 @@ def get_conversational_response(user_input):
     
     return None
 
-
+# ------------------------------
+# Unit Converter
+# ------------------------------
 def unit_converter(query):
+    # Regex to check for the 'value unit1 to unit2' format
     conversion_match = re.search(r"([-+]?\d*\.?\d+)\s*([a-z°]+)\s*to\s*([a-z°]+)", query.lower().replace(" ", ""))
     if not conversion_match:
-        return None 
+        return None # Return None if not a valid conversion format
 
     value, from_unit, to_unit = conversion_match.groups()
     try:
@@ -264,25 +303,31 @@ def unit_converter(query):
     else:
         return f"⚠️ Conversion from '{from_unit}' to '{to_unit}' not supported."
 
-
+# ------------------------------
+# Quiz Functions
+# ------------------------------
 def generate_fill_in_blank(summary):
+    # Split summary into sentences, keeping only non-empty ones
     sentences = [s.strip() for s in re.split(r'[.!?]', summary) if s.strip()]
     if not sentences:
         return None
     
+    # Select a sentence that is not too short for a question
     suitable_sentences = [s for s in sentences if len(s.split()) > 8]
     if not suitable_sentences:
         return None
         
     sentence = choice(suitable_sentences)
     
+    # Select words to potentially blank out (nouns, proper nouns, adjectives are best)
     words = [w.strip(".,;") for w in sentence.split()]
     potential_answers = [
         w.strip(".,;") for w in words
         if w and w[0].isupper() and w not in ["A", "The", "An", "In", "On", "Of", "For", "With", "He", "She", "It"]
-        and w != words[0].strip(".,;") 
+        and w != words[0].strip(".,;") # Exclude first word of sentence
     ]
     
+    # Fallback to a long word if no capital words are found
     if not potential_answers:
           potential_answers = [w.strip(".,;") for w in words if len(w) > 5]
 
@@ -291,13 +336,17 @@ def generate_fill_in_blank(summary):
 
     answer = choice(potential_answers)
     
+    # Create the blanked sentence. Use regex to replace the answer word only.
     blank_sentence = re.sub(r'\b' + re.escape(answer) + r'\b', '_____', sentence, flags=re.IGNORECASE)
     
+    # Generate distractors from other words in all summaries
     all_words = [w.strip(".,;").lower() for s in st.session_state.topics_today.values() for w in s.split()]
     unique_words = list(set(w for w in all_words if len(w) > 3 and w.lower() != answer.lower()))
     
+    # Select 3 distractors
     distractors = sample(unique_words, min(3, len(unique_words)))
     
+    # Ensure options are properly capitalized (use original answer capitalization)
     distractor_options = [d.capitalize() for d in distractors]
     
     options = [answer] + distractor_options
@@ -315,6 +364,7 @@ def generate_quiz_questions(topics_dict, total_questions=10):
         q = generate_fill_in_blank(summary)
         if q:
             blank_sentence, answer, options = q
+            # Check for duplicates
             if not any(d["question"] == blank_sentence for d in questions):
                 questions.append({"topic": topic, "question": blank_sentence, "answer": answer, "options": options})
         topic_idx += 1
@@ -323,7 +373,7 @@ def generate_quiz_questions(topics_dict, total_questions=10):
     return questions[:total_questions]
 
 # ------------------------------
-# Sidebar Navigation (Updated)
+# Sidebar Navigation
 # ------------------------------
 st.sidebar.title("🧭 Study Buddy Menu")
 page = st.sidebar.radio("Choose a page:", [
@@ -336,7 +386,7 @@ page = st.sidebar.radio("Choose a page:", [
 ])
 
 # ------------------------------
-# Page 1: Topic Summary + Conversational (Now includes all general topics/chemistry)
+# Page 1: Topic Summary
 # ------------------------------
 if page == "📚 Topic Summary":
     st.markdown("<h1>📚 Study Buddy: Topic Summary</h1>", unsafe_allow_html=True)
@@ -514,15 +564,16 @@ elif page == "📝 Quiz":
 
 
 # ------------------------------
-# Page 5: Meditation Timer
+# Page 5: Meditation Timer (UPDATED)
 # ------------------------------
 elif page == "🧘 Meditation Timer":
     st.markdown("<h1>🧘 Meditation Timer</h1>", unsafe_allow_html=True)
+    
     minutes = st.number_input("Set Timer (minutes):", min_value=1, max_value=120, value=5)
     
     if st.button("Start Timer", disabled=st.session_state.timer_running):
         st.session_state.timer_running = True
-        st.info("Meditation in progress...")
+        st.info("🧘 Meditation in progress... Find a quiet space and breathe.")
         timer_placeholder = st.empty()
         
         # Streamlit's simple sleep implementation for a timer
@@ -533,17 +584,38 @@ elif page == "🧘 Meditation Timer":
         
         # Timer finished
         st.balloons()
-        st.success("✅ Time's up! Great job!")
+        st.success(f"✅ Time's up! You meditated for **{minutes} minutes**.")
+        
+        # --- Update Tracking ---
         st.session_state.meditation_minutes += minutes
+        
+        # Record session in history
+        today_date_str = str(datetime.date.today())
+        
+        # Check if an entry for today already exists (to aggregate if multiple sessions happen)
+        found_today = False
+        for entry in st.session_state.meditation_history:
+            if entry["date"] == today_date_str:
+                entry["minutes"] += minutes
+                found_today = True
+                break
+        
+        if not found_today:
+            st.session_state.meditation_history.append({"date": today_date_str, "minutes": minutes})
+
         st.session_state.timer_running = False
         # --- FIX: Use st.rerun() ---
         st.rerun()
 
 # ------------------------------
-# Page 6: Daily Dashboard
+# Page 6: Daily Dashboard (UPDATED)
 # ------------------------------
 elif page == "📊 Daily Dashboard":
     st.markdown("<h1>📊 Daily Dashboard</h1>", unsafe_allow_html=True)
+    
+    # Calculate lifetime stats
+    total_minutes_all_time = sum(item["minutes"] for item in st.session_state.meditation_history)
+    total_sessions_all_time = len(st.session_state.meditation_history)
     
     st.subheader("🗓️ Daily Progress Summary")
     
@@ -551,34 +623,63 @@ elif page == "📊 Daily Dashboard":
     
     with col_t:
         st.subheader("📚 Topics")
-        st.metric("Total Topics", len(st.session_state.topics_today), delta="/10 target")
+        st.metric("Topics Covered Today", len(st.session_state.topics_today), delta="/10 target")
 
     with col_q:
         st.subheader("📝 Quiz")
         accuracy = (st.session_state.quiz_score / st.session_state.quiz_count * 100) if st.session_state.quiz_count > 0 else 0
-        st.metric("Accuracy", f"{accuracy:.1f}%")
+        st.metric("Today's Accuracy", f"{accuracy:.1f}%")
 
     with col_m:
         st.subheader("🧘 Meditation")
-        st.metric("Minutes Meditated", st.session_state.meditation_minutes, delta="/30 min target")
+        st.metric("Minutes Meditated Today", st.session_state.meditation_minutes, delta="/30 min target")
 
     st.markdown("---")
     
+    if st.session_state.meditation_minutes >= 30:
+        st.success("🎯 Daily meditation goal reached!")
+
+    ## All-Time Meditation Records
+    st.subheader("🌳 Meditation Records (All-Time)")
+    col_total_min, col_total_sessions = st.columns(2)
+    
+    with col_total_min:
+        st.metric("Total Minutes Meditated", total_minutes_all_time)
+        
+    with col_total_sessions:
+        st.metric("Total Recorded Sessions", total_sessions_all_time)
+
+    st.markdown("---")
+    
+    ## Detailed Breakdown
+    st.subheader("🕰️ Meditation History")
+    if st.session_state.meditation_history:
+        # Sort history by date descending
+        sorted_history = sorted(st.session_state.meditation_history, key=lambda x: x['date'], reverse=True)
+        
+        history_list = []
+        for item in sorted_history:
+            history_list.append(f"- **{item['date']}**: {item['minutes']} minutes")
+        
+        st.markdown("\n".join(history_list))
+    else:
+        st.info("No meditation sessions recorded yet.")
+
+    st.markdown("---")
+
     st.subheader("📝 Quiz Breakdown")
     st.metric("Questions Attempted", st.session_state.quiz_count)
     st.metric("Correct Answers", st.session_state.quiz_score)
 
     st.markdown("---")
     
-    st.subheader("📚 Topics Covered")
+    st.subheader("📚 Topics Covered Today")
     if st.session_state.topics_today:
         topic_list = "\n".join([f"- **{t}**" for t in st.session_state.topics_today.keys()])
         st.markdown(topic_list)
     else:
         st.info("No topics covered yet today.")
 
-    if st.session_state.meditation_minutes >= 30:
-        st.success("🎯 Daily meditation goal reached!")
 
 # ------------------------------
 # Footer
