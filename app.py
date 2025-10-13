@@ -5,6 +5,7 @@ import sympy as sp
 import datetime
 import re
 import requests
+import json # New import for API handling
 from random import choice, sample, shuffle
 import time
 
@@ -14,9 +15,12 @@ import time
 st.set_page_config(page_title="Study Buddy", page_icon="📚", layout="wide")
 
 # ------------------------------
-# WolframAlpha API (Optional)
+# API Keys (Optional)
 #
 WOLFRAM_APP_ID = "8L5YE636JU" 
+# Placeholder for a free AI/ConceptNet/Chemistry API key if you integrate one later
+CHEMISTRY_AI_API_KEY = "YOUR_CHEMISTRY_AI_KEY" 
+# Open-Meteo is free and requires no key for basic features, but good practice to keep the section
 
 # ------------------------------
 # Session State Initialization
@@ -44,6 +48,7 @@ if "timer_running" not in st.session_state:
 
 # ------------------------------
 # CSS for Glowing Inputs and Bold Effects
+# (Leaving this section as is)
 # ------------------------------
 st.markdown("""
 <style>
@@ -146,8 +151,71 @@ def fetch_summary(topic):
         
     return "⚠️ Sorry, no relevant data found on Wikipedia or WolframAlpha."
 
+# --- NEW: Weather/Location Helper Function ---
+def get_open_meteo_weather(city_name):
+    # 1. Geocoding: Use Open-Meteo's geocoding to get lat/lon
+    geocode_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_name}&count=1&language=en&format=json"
+    
+    try:
+        r_geo = requests.get(geocode_url, timeout=10)
+        r_geo.raise_for_status() # Raise exception for bad status codes
+        
+        geo_data = r_geo.json()
+        if not geo_data.get('results'):
+            return "⚠️ City not found in geocoding service."
+
+        # Extract latitude, longitude, and display name
+        result = geo_data['results'][0]
+        latitude = result['latitude']
+        longitude = result['longitude']
+        display_name = f"{result.get('name', city_name)}, {result.get('country', '')}"
+
+        # 2. Weather API Call: Get current weather
+        weather_url = (
+            f"https://api.open-meteo.com/v1/forecast?"
+            f"latitude={latitude}&longitude={longitude}&"
+            f"current=temperature_2m,weather_code,wind_speed_10m&"
+            f"temperature_unit=celsius&wind_speed_unit=kmh&"
+            f"forecast_days=1"
+        )
+        
+        r_weather = requests.get(weather_url, timeout=10)
+        r_weather.raise_for_status()
+        weather_data = r_weather.json()
+        
+        current = weather_data['current']
+        
+        # Simple weather code interpretation (Open-Meteo uses WMO codes)
+        weather_code = current['weather_code']
+        # Simplified mapping (WMO codes: 0=clear, 1-3=partly cloudy, 51-65=rain, 71-75=snow, 95=thunderstorm)
+        weather_description = "Clear Sky ☀️"
+        if 1 <= weather_code <= 3:
+            weather_description = "Partly Cloudy 🌥️"
+        elif 51 <= weather_code <= 65:
+            weather_description = "Rain 🌧️"
+        elif 71 <= weather_code <= 75:
+            weather_description = "Snow ❄️"
+        elif 95 == weather_code:
+            weather_description = "Thunderstorm ⛈️"
+            
+        
+        return (
+            f"📍 **Location:** {display_name} (Lat: {latitude:.2f}, Lon: {longitude:.2f})\n\n"
+            f"**Current Weather:**\n"
+            f"- **Temperature:** {current['temperature_2m']} °C\n"
+            f"- **Condition:** {weather_description}\n"
+            f"- **Wind Speed:** {current['wind_speed_10m']} km/h"
+        )
+
+    except requests.exceptions.RequestException as e:
+        return f"⚠️ Error fetching weather data: {e}"
+    except Exception as e:
+        return f"⚠️ An unexpected error occurred: {e}"
+
+
 # ------------------------------
-# Conversational / Farewell Inputs (FIXED with word boundaries)
+# Conversational / Farewell Inputs
+# (Leaving this section as is)
 # ------------------------------
 def get_conversational_response(user_input):
     user_input_lower = user_input.lower().strip()
@@ -186,6 +254,7 @@ def get_conversational_response(user_input):
 
 # ------------------------------
 # Unit Converter
+# (Leaving this section as is)
 # ------------------------------
 def unit_converter(query):
     # Regex to check for the 'value unit1 to unit2' format
@@ -227,6 +296,7 @@ def unit_converter(query):
 
 # ------------------------------
 # Quiz Functions
+# (Leaving this section as is)
 # ------------------------------
 def generate_fill_in_blank(summary):
     # Split summary into sentences, keeping only non-empty ones
@@ -251,7 +321,7 @@ def generate_fill_in_blank(summary):
     
     # Fallback to a long word if no capital words are found
     if not potential_answers:
-         potential_answers = [w.strip(".,;") for w in words if len(w) > 5]
+          potential_answers = [w.strip(".,;") for w in words if len(w) > 5]
 
     if not potential_answers:
         return None
@@ -296,12 +366,22 @@ def generate_quiz_questions(topics_dict, total_questions=10):
 
 # ------------------------------
 # Sidebar Navigation
+# --- NEW PAGE ADDED ---
 # ------------------------------
 st.sidebar.title("🧭 Study Buddy Menu")
-page = st.sidebar.radio("Choose a page:", ["📚 Topic Summary", "🧮 Scientific Calculator + Unit Converter", "📝 Quiz", "🧘 Meditation Timer", "📊 Daily Dashboard"])
+page = st.sidebar.radio("Choose a page:", [
+    "📚 Topic Summary", 
+    "🧪 Chemistry Deep Dive", # New page
+    "🌍 Weather & Location", # New page
+    "🧮 Scientific Calculator + Unit Converter", 
+    "📝 Quiz", 
+    "🧘 Meditation Timer", 
+    "📊 Daily Dashboard"
+])
 
 # ------------------------------
 # Page 1: Topic Summary + Conversational
+# (Leaving this section as is)
 # ------------------------------
 if page == "📚 Topic Summary":
     st.markdown("<h1>📚 Study Buddy</h1>", unsafe_allow_html=True)
@@ -326,7 +406,55 @@ if page == "📚 Topic Summary":
         st.success("🎯 Daily goal reached!")
 
 # ------------------------------
-# Page 2: Calculator + Unit Converter
+# Page 2: Chemistry Deep Dive (New)
+# ------------------------------
+elif page == "🧪 Chemistry Deep Dive":
+    st.markdown("<h1>🧪 Chemistry Deep Dive</h1>", unsafe_allow_html=True)
+    st.info("⚠️ This feature relies on the general 'Topic Summary' engine. If you integrate a dedicated Chemistry API (e.g., PubChem, a specific AI model endpoint), you can customize the summary here.")
+
+    chemistry_topic = st.text_input("Enter a Chemical Element, Compound, or Concept (e.g., 'Methane', 'Periodic Table', 'Redox Reaction'):", key="chemistry_topic_input")
+    
+    if chemistry_topic:
+        with st.spinner(f"⚛️ Researching {chemistry_topic}..."):
+            # --- Dedicated Chemistry API Integration Placeholder ---
+            # if CHEMISTRY_AI_API_KEY and use_dedicated_api_for_chemistry(chemistry_topic):
+            #    chemistry_summary = get_chemistry_summary_from_api(chemistry_topic, CHEMISTRY_AI_API_KEY)
+            # else:
+            #    chemistry_summary = fetch_summary(chemistry_topic)
+
+            # Fallback to general fetch_summary for now
+            chemistry_summary = fetch_summary(chemistry_topic)
+
+            st.markdown("### 🧪 Chemical Summary")
+            st.write(chemistry_summary)
+            
+            # Add to topics covered, even if it's a specific chemistry search
+            if "Source: Wikipedia" in chemistry_summary:
+                st.session_state.topics_today[chemistry_topic] = chemistry_summary.replace("**Source: Wikipedia**\n\n", "")
+
+
+# ------------------------------
+# Page 3: Weather & Location (New)
+# ------------------------------
+elif page == "🌍 Weather & Location":
+    st.markdown("<h1>🌍 Weather & Location</h1>", unsafe_allow_html=True)
+    st.markdown("Get the current weather for any major city using the **Open-Meteo API**.")
+
+    city_input = st.text_input("Enter a City Name (e.g., 'London', 'Tokyo', 'New York'):", key="city_input_text")
+    
+    if city_input:
+        with st.spinner("☁️ Fetching weather data..."):
+            weather_report = get_open_meteo_weather(city_input)
+            
+            st.markdown("### ☀️ Weather Report")
+            st.markdown(weather_report)
+            
+            # Optional: Add the location as a topic covered
+            st.session_state.topics_today[f"Weather in {city_input}"] = weather_report
+
+# ------------------------------
+# Page 4: Calculator + Unit Converter
+# (Note: Page index shifted)
 # ------------------------------
 elif page == "🧮 Scientific Calculator + Unit Converter":
     st.markdown("<h1>🧮 Calculator + Unit Converter</h1>", unsafe_allow_html=True)
@@ -341,7 +469,7 @@ elif page == "🧮 Scientific Calculator + Unit Converter":
             st.success("✅ Conversion Successful")
             st.code(conversion_result)
         elif conversion_result and conversion_result.startswith("⚠️"):
-             st.error(conversion_result)
+              st.error(conversion_result)
         else:
             # Try scientific calculation as fallback
             try:
@@ -370,7 +498,8 @@ elif page == "🧮 Scientific Calculator + Unit Converter":
                 st.error(f"❌ Calculation Error: {e}")
 
 # ------------------------------
-# Page 3: Quiz
+# Page 5: Quiz
+# (Note: Page index shifted)
 # ------------------------------
 elif page == "📝 Quiz":
     st.markdown("<h1>📝 Dynamic Quiz!</h1>", unsafe_allow_html=True)
@@ -383,7 +512,7 @@ elif page == "📝 Quiz":
             st.session_state.quiz_index = 0
             
         if not st.session_state.quiz_questions:
-             st.warning("⚠️ Could not generate quiz questions from the topics covered. Try exploring more detailed topics.")
+              st.warning("⚠️ Could not generate quiz questions from the topics covered. Try exploring more detailed topics.")
         else:
             current_q_index = st.session_state.quiz_index % len(st.session_state.quiz_questions)
             q = st.session_state.quiz_questions[current_q_index]
@@ -459,7 +588,8 @@ elif page == "📝 Quiz":
 
 
 # ------------------------------
-# Page 4: Meditation Timer
+# Page 6: Meditation Timer
+# (Note: Page index shifted)
 # ------------------------------
 elif page == "🧘 Meditation Timer":
     st.markdown("<h1>🧘 Meditation Timer</h1>", unsafe_allow_html=True)
@@ -485,7 +615,8 @@ elif page == "🧘 Meditation Timer":
         st.rerun()
 
 # ------------------------------
-# Page 5: Daily Dashboard
+# Page 7: Daily Dashboard
+# (Note: Page index shifted)
 # ------------------------------
 elif page == "📊 Daily Dashboard":
     st.markdown("<h1>📊 Daily Dashboard</h1>", unsafe_allow_html=True)
