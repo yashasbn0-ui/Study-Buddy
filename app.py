@@ -5,26 +5,18 @@ import sympy as sp
 import datetime
 import re
 import requests
-import json # New import for API handling
+import json
 from random import choice, sample, shuffle
 import time
 
-# ------------------------------
-# Streamlit Config
-# ------------------------------
+
 st.set_page_config(page_title="Study Buddy", page_icon="📚", layout="wide")
 
-# ------------------------------
-# API Keys (Optional)
-#
-WOLFRAM_APP_ID = "8L5YE636JU" 
-# Placeholder for a free AI/ConceptNet/Chemistry API key if you integrate one later
-CHEMISTRY_AI_API_KEY = "YOUR_CHEMISTRY_AI_KEY" 
-# Open-Meteo is free and requires no key for basic features, but good practice to keep the section
 
-# ------------------------------
-# Session State Initialization
-# ------------------------------
+WOLFRAM_APP_ID = "8L5YE636JU" 
+
+APP_ID_2="3KRR2XR9J2"
+
 if "topics_today" not in st.session_state:
     st.session_state.topics_today = {}
 if "last_reset" not in st.session_state:
@@ -46,10 +38,7 @@ if "quiz_index" not in st.session_state:
 if "timer_running" not in st.session_state:
     st.session_state.timer_running = False
 
-# ------------------------------
-# CSS for Glowing Inputs and Bold Effects
-# (Leaving this section as is)
-# ------------------------------
+
 st.markdown("""
 <style>
 h1 {
@@ -93,18 +82,16 @@ button:hover {
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------------------
-# Helper Functions
-# ------------------------------
+
 def get_wikipedia_summary(topic):
     try:
-        # Check if topic is a simple single-word greeting/farewell
+        
         if topic in ["Greetings", "History of greetings", "Hello", "Farewell", "Goodbye", "Saying goodbye", "Parting words"]:
             wikipedia.set_lang("en")
             summary = wikipedia.summary(topic, sentences=5) # Use fewer sentences for conversational
             return summary
         
-        # Check cache before hitting API for main topics
+        
         if topic in st.session_state.topics_today:
             return st.session_state.topics_today[topic]
 
@@ -115,7 +102,7 @@ def get_wikipedia_summary(topic):
     except wikipedia.exceptions.PageError:
         return None
     except wikipedia.exceptions.DisambiguationError:
-        # Simple handling for disambiguation by taking the first option
+        
         try:
             suggested_topic = wikipedia.search(topic)[0]
             summary = wikipedia.summary(suggested_topic, sentences=10)
@@ -127,9 +114,10 @@ def get_wikipedia_summary(topic):
         return None
 
 def get_wolfram_result(topic):
-    if not WOLFRAM_APP_ID or WOLFRAM_APP_ID == "YOUR_APP_ID_HERE":
+    if not WOLFRAM_APP_ID or WOLFRAM_APP_ID == "3KRR2XR9J2":
         return None
     try:
+        # 
         url = f"http://api.wolframalpha.com/v1/result?appid={WOLFRAM_APP_ID}&i={topic}"
         r = requests.get(url, timeout=10)
         if r.status_code == 200 and r.text.strip().lower() != "no result found":
@@ -144,16 +132,13 @@ def fetch_summary(topic):
     if summary:
         return f"**Source: Wikipedia**\n\n{summary}"
     
-    # Try WolframAlpha as a fallback, especially good for math/facts
     wolfram = get_wolfram_result(topic)
     if wolfram:
         return f"**Source: WolframAlpha**\n\n{wolfram}"
         
     return "⚠️ Sorry, no relevant data found on Wikipedia or WolframAlpha."
 
-# --- NEW: Weather/Location Helper Function ---
 def get_open_meteo_weather(city_name):
-    # 1. Geocoding: Use Open-Meteo's geocoding to get lat/lon
     geocode_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_name}&count=1&language=en&format=json"
     
     try:
@@ -164,13 +149,11 @@ def get_open_meteo_weather(city_name):
         if not geo_data.get('results'):
             return "⚠️ City not found in geocoding service."
 
-        # Extract latitude, longitude, and display name
         result = geo_data['results'][0]
         latitude = result['latitude']
         longitude = result['longitude']
         display_name = f"{result.get('name', city_name)}, {result.get('country', '')}"
 
-        # 2. Weather API Call: Get current weather
         weather_url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={latitude}&longitude={longitude}&"
@@ -185,9 +168,7 @@ def get_open_meteo_weather(city_name):
         
         current = weather_data['current']
         
-        # Simple weather code interpretation (Open-Meteo uses WMO codes)
         weather_code = current['weather_code']
-        # Simplified mapping (WMO codes: 0=clear, 1-3=partly cloudy, 51-65=rain, 71-75=snow, 95=thunderstorm)
         weather_description = "Clear Sky ☀️"
         if 1 <= weather_code <= 3:
             weather_description = "Partly Cloudy 🌥️"
@@ -213,10 +194,7 @@ def get_open_meteo_weather(city_name):
         return f"⚠️ An unexpected error occurred: {e}"
 
 
-# ------------------------------
-# Conversational / Farewell Inputs
-# (Leaving this section as is)
-# ------------------------------
+
 def get_conversational_response(user_input):
     user_input_lower = user_input.lower().strip()
     if not user_input_lower:
@@ -225,21 +203,17 @@ def get_conversational_response(user_input):
     farewells = ["bye", "goodbye", "see you", "farewell", "good night", "take care"]
     greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]
     
-    # Regex to check for exact word match with word boundaries (\b)
     farewell_regex = r"\b(" + "|".join(re.escape(f) for f in farewells) + r")\b"
     greeting_regex = r"\b(" + "|".join(re.escape(g) for g in greetings) + r")\b"
 
-    # Check for farewell
     if re.search(farewell_regex, user_input_lower):
         topics = ["Farewell", "Goodbye", "Saying goodbye", "Parting words"]
         for topic in topics:
             summary = get_wikipedia_summary(topic)
             if summary:
-                # Using a fixed snippet for consistency with the conversational tone
                 return f"**You said:** {user_input}\n\n**Here's something interesting about farewells:**\nFarewell rituals often symbolize closure and hope for future encounters. They can range from simple waves to elaborate ceremonies, reflecting cultural norms around separation and reunion. {summary.split('.')[0]}."
         return "👋 Goodbye! Take care!"
     
-    # Check for greeting
     elif re.search(greeting_regex, user_input_lower):
         topics = ["Greetings", "History of greetings", "Hello"]
         for topic in topics:
@@ -250,17 +224,13 @@ def get_conversational_response(user_input):
                 
         return f"Hello! How can I assist you today?"
     
-    return None # Return None if not a conversational/farewell match.
+    return None
 
-# ------------------------------
-# Unit Converter
-# (Leaving this section as is)
-# ------------------------------
+
 def unit_converter(query):
-    # Regex to check for the 'value unit1 to unit2' format
     conversion_match = re.search(r"([-+]?\d*\.?\d+)\s*([a-z°]+)\s*to\s*([a-z°]+)", query.lower().replace(" ", ""))
     if not conversion_match:
-        return None # Return None if not a valid conversion format
+        return None 
 
     value, from_unit, to_unit = conversion_match.groups()
     try:
@@ -294,32 +264,25 @@ def unit_converter(query):
     else:
         return f"⚠️ Conversion from '{from_unit}' to '{to_unit}' not supported."
 
-# ------------------------------
-# Quiz Functions
-# (Leaving this section as is)
-# ------------------------------
+
 def generate_fill_in_blank(summary):
-    # Split summary into sentences, keeping only non-empty ones
     sentences = [s.strip() for s in re.split(r'[.!?]', summary) if s.strip()]
     if not sentences:
         return None
     
-    # Select a sentence that is not too short for a question
     suitable_sentences = [s for s in sentences if len(s.split()) > 8]
     if not suitable_sentences:
         return None
         
     sentence = choice(suitable_sentences)
     
-    # Select words to potentially blank out (nouns, proper nouns, adjectives are best)
     words = [w.strip(".,;") for w in sentence.split()]
     potential_answers = [
         w.strip(".,;") for w in words
         if w and w[0].isupper() and w not in ["A", "The", "An", "In", "On", "Of", "For", "With", "He", "She", "It"]
-        and w != words[0].strip(".,;") # Exclude first word of sentence
+        and w != words[0].strip(".,;") 
     ]
     
-    # Fallback to a long word if no capital words are found
     if not potential_answers:
           potential_answers = [w.strip(".,;") for w in words if len(w) > 5]
 
@@ -328,17 +291,13 @@ def generate_fill_in_blank(summary):
 
     answer = choice(potential_answers)
     
-    # Create the blanked sentence. Use regex to replace the answer word only.
     blank_sentence = re.sub(r'\b' + re.escape(answer) + r'\b', '_____', sentence, flags=re.IGNORECASE)
     
-    # Generate distractors from other words in all summaries
     all_words = [w.strip(".,;").lower() for s in st.session_state.topics_today.values() for w in s.split()]
     unique_words = list(set(w for w in all_words if len(w) > 3 and w.lower() != answer.lower()))
     
-    # Select 3 distractors
     distractors = sample(unique_words, min(3, len(unique_words)))
     
-    # Ensure options are properly capitalized (use original answer capitalization)
     distractor_options = [d.capitalize() for d in distractors]
     
     options = [answer] + distractor_options
@@ -356,7 +315,6 @@ def generate_quiz_questions(topics_dict, total_questions=10):
         q = generate_fill_in_blank(summary)
         if q:
             blank_sentence, answer, options = q
-            # Check for duplicates
             if not any(d["question"] == blank_sentence for d in questions):
                 questions.append({"topic": topic, "question": blank_sentence, "answer": answer, "options": options})
         topic_idx += 1
@@ -365,14 +323,12 @@ def generate_quiz_questions(topics_dict, total_questions=10):
     return questions[:total_questions]
 
 # ------------------------------
-# Sidebar Navigation
-# --- NEW PAGE ADDED ---
+# Sidebar Navigation (Updated)
 # ------------------------------
 st.sidebar.title("🧭 Study Buddy Menu")
 page = st.sidebar.radio("Choose a page:", [
     "📚 Topic Summary", 
-    "🧪 Chemistry Deep Dive", # New page
-    "🌍 Weather & Location", # New page
+    "🌍 Weather & Location",
     "🧮 Scientific Calculator + Unit Converter", 
     "📝 Quiz", 
     "🧘 Meditation Timer", 
@@ -380,13 +336,13 @@ page = st.sidebar.radio("Choose a page:", [
 ])
 
 # ------------------------------
-# Page 1: Topic Summary + Conversational
-# (Leaving this section as is)
+# Page 1: Topic Summary + Conversational (Now includes all general topics/chemistry)
 # ------------------------------
 if page == "📚 Topic Summary":
-    st.markdown("<h1>📚 Study Buddy</h1>", unsafe_allow_html=True)
+    st.markdown("<h1>📚 Study Buddy: Topic Summary</h1>", unsafe_allow_html=True)
+    st.markdown("Enter any topic, including **Chemistry concepts** (e.g., 'Methane', 'Balance $\text{H}_2 + \text{O}_2$', 'Quantum Physics') or conversation starters ('hello', 'bye').")
     
-    topic_input = st.text_input("Enter a topic (or type something like 'bye', 'see you', 'hello'):", key="topic_input_text")
+    topic_input = st.text_input("Enter a topic or query:", key="topic_input_text")
     
     if topic_input:
         with st.spinner("🔍 Gathering data..."):
@@ -399,42 +355,14 @@ if page == "📚 Topic Summary":
                 st.markdown("### 🧾 Summary")
                 st.write(summary)
 
-    st.markdown("---")
-    st.subheader("📈 Progress Tracker")
-    st.metric("Topics Covered Today", len(st.session_state.topics_today), delta="/ 10 target")
-    if len(st.session_state.topics_today) >= 10:
-        st.success("🎯 Daily goal reached!")
+        st.markdown("---")
+        st.subheader("📈 Progress Tracker")
+        st.metric("Topics Covered Today", len(st.session_state.topics_today), delta="/ 10 target")
+        if len(st.session_state.topics_today) >= 10:
+            st.success("🎯 Daily goal reached!")
 
 # ------------------------------
-# Page 2: Chemistry Deep Dive (New)
-# ------------------------------
-elif page == "🧪 Chemistry Deep Dive":
-    st.markdown("<h1>🧪 Chemistry Deep Dive</h1>", unsafe_allow_html=True)
-    st.info("⚠️ This feature relies on the general 'Topic Summary' engine. If you integrate a dedicated Chemistry API (e.g., PubChem, a specific AI model endpoint), you can customize the summary here.")
-
-    chemistry_topic = st.text_input("Enter a Chemical Element, Compound, or Concept (e.g., 'Methane', 'Periodic Table', 'Redox Reaction'):", key="chemistry_topic_input")
-    
-    if chemistry_topic:
-        with st.spinner(f"⚛️ Researching {chemistry_topic}..."):
-            # --- Dedicated Chemistry API Integration Placeholder ---
-            # if CHEMISTRY_AI_API_KEY and use_dedicated_api_for_chemistry(chemistry_topic):
-            #    chemistry_summary = get_chemistry_summary_from_api(chemistry_topic, CHEMISTRY_AI_API_KEY)
-            # else:
-            #    chemistry_summary = fetch_summary(chemistry_topic)
-
-            # Fallback to general fetch_summary for now
-            chemistry_summary = fetch_summary(chemistry_topic)
-
-            st.markdown("### 🧪 Chemical Summary")
-            st.write(chemistry_summary)
-            
-            # Add to topics covered, even if it's a specific chemistry search
-            if "Source: Wikipedia" in chemistry_summary:
-                st.session_state.topics_today[chemistry_topic] = chemistry_summary.replace("**Source: Wikipedia**\n\n", "")
-
-
-# ------------------------------
-# Page 3: Weather & Location (New)
+# Page 2: Weather & Location
 # ------------------------------
 elif page == "🌍 Weather & Location":
     st.markdown("<h1>🌍 Weather & Location</h1>", unsafe_allow_html=True)
@@ -449,12 +377,11 @@ elif page == "🌍 Weather & Location":
             st.markdown("### ☀️ Weather Report")
             st.markdown(weather_report)
             
-            # Optional: Add the location as a topic covered
+            # Add the location as a topic covered
             st.session_state.topics_today[f"Weather in {city_input}"] = weather_report
 
 # ------------------------------
-# Page 4: Calculator + Unit Converter
-# (Note: Page index shifted)
+# Page 3: Calculator + Unit Converter
 # ------------------------------
 elif page == "🧮 Scientific Calculator + Unit Converter":
     st.markdown("<h1>🧮 Calculator + Unit Converter</h1>", unsafe_allow_html=True)
@@ -498,8 +425,7 @@ elif page == "🧮 Scientific Calculator + Unit Converter":
                 st.error(f"❌ Calculation Error: {e}")
 
 # ------------------------------
-# Page 5: Quiz
-# (Note: Page index shifted)
+# Page 4: Quiz
 # ------------------------------
 elif page == "📝 Quiz":
     st.markdown("<h1>📝 Dynamic Quiz!</h1>", unsafe_allow_html=True)
@@ -588,8 +514,7 @@ elif page == "📝 Quiz":
 
 
 # ------------------------------
-# Page 6: Meditation Timer
-# (Note: Page index shifted)
+# Page 5: Meditation Timer
 # ------------------------------
 elif page == "🧘 Meditation Timer":
     st.markdown("<h1>🧘 Meditation Timer</h1>", unsafe_allow_html=True)
@@ -615,8 +540,7 @@ elif page == "🧘 Meditation Timer":
         st.rerun()
 
 # ------------------------------
-# Page 7: Daily Dashboard
-# (Note: Page index shifted)
+# Page 6: Daily Dashboard
 # ------------------------------
 elif page == "📊 Daily Dashboard":
     st.markdown("<h1>📊 Daily Dashboard</h1>", unsafe_allow_html=True)
