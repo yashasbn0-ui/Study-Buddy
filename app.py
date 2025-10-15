@@ -260,38 +260,37 @@ elif page=="🌦 Weather":
     city=st.text_input("Enter city name:")
     if city: st.write(get_weather(city))
 
-elif page=="🧘 Meditation Timer":
+# ------------------------------
+# Page 6: Meditation Timer
+# ------------------------------
+elif page == "🧘 Meditation Timer":
+    st.markdown("<h1>🧘 Meditation Timer</h1>", unsafe_allow_html=True)
+
+    # Timer input
     minutes = st.number_input("Set Timer (minutes):", min_value=1, max_value=120, value=5)
-    placeholder = st.empty()
-    progress_bar = st.progress(0)
 
-    # Start timer button
-    if st.button("Start Timer") and not st.session_state.timer_running:
-        st.session_state.timer_end_time = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
+    # Placeholder for dynamic timer display
+    timer_placeholder = st.empty()
+
+    # Start button
+    if st.button("Start Timer", disabled=st.session_state.timer_running):
         st.session_state.timer_running = True
+        st.info("Meditation in progress...")
 
-    if st.session_state.timer_running:
-        remaining = (st.session_state.timer_end_time - datetime.datetime.now()).total_seconds()
-        total_seconds = minutes * 60
-        if remaining > 0:
-            m, s = divmod(int(remaining), 60)
-            placeholder.markdown(f"## ⏰ {m:02d}:{s:02d}")
-            progress_bar.progress(int((total_seconds - remaining)/total_seconds*100))
-            st.experimental_rerun()
-        else:
-            placeholder.markdown("## ⏰ 00:00")
-            progress_bar.progress(100)
-            st.balloons()
-            st.success(f"✅ You meditated for {minutes} minutes!")
-            st.session_state.meditation_minutes += minutes
-            today = str(datetime.date.today())
-            found=False
-            for entry in st.session_state.meditation_history:
-                if entry["date"]==today:
-                    entry["minutes"]+=minutes; found=True
-            if not found: st.session_state.meditation_history.append({"date":today,"minutes":minutes})
-            st.session_state.timer_running=False
-            st.session_state.timer_end_time=None
+        # Timer loop
+        for i in range(minutes * 60, 0, -1):
+            mins, secs = divmod(i, 60)
+            timer_placeholder.markdown(f"## ⏰ {mins:02d}:{secs:02d}", unsafe_allow_html=True)
+            # Sleep for 1 second per loop
+            import time
+            time.sleep(1)
+
+        # Timer finished
+        st.balloons()
+        st.success("✅ Time's up! Great job!")
+        st.session_state.meditation_minutes += minutes
+        st.session_state.timer_running = False
+
 
 elif page=="📊 Daily Dashboard":
     st.subheader("📊 Daily Dashboard")
@@ -304,3 +303,4 @@ elif page=="📊 Daily Dashboard":
 elif page=="📝 Notes":
     note=st.text_area("Write your study notes here:")
     if st.button("Save Note"): st.success("📝 Note saved!")
+
