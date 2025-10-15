@@ -12,7 +12,7 @@ import time
 # ------------------------------
 # Streamlit Config
 # ------------------------------
-st.set_page_config(page_title="AI-Powered Study Buddy", layout="wide")
+st.set_page_config(page_title="Study Buddy", layout="wide")
 
 # ------------------------------
 # CSS Effects
@@ -65,6 +65,7 @@ if "quiz_count" not in st.session_state: st.session_state.quiz_count = 0
 if "meditation_minutes" not in st.session_state: st.session_state.meditation_minutes = 0
 if "meditation_history" not in st.session_state: st.session_state.meditation_history = []
 if "timer_running" not in st.session_state: st.session_state.timer_running = False
+if "timer_end_time" not in st.session_state: st.session_state.timer_end_time = None
 
 # ------------------------------
 # Helper Functions
@@ -116,16 +117,33 @@ def summarize_topic(topic):
     wrapped_text = textwrap.fill(combined, width=95)
     return f"### 🧠 Summary for **{topic.title()}**\n\n{wrapped_text}"
 
-def generate_quiz_from_summary(summary, topic):
-    words = [w for w in re.findall(r'\b[A-Za-z]{6,}\b', summary)]
-    random.shuffle(words)
-    selected = words[:4] if len(words)>=4 else words
-    quiz=[]
-    for i, w in enumerate(selected):
-        question = f"Q{i+1}. What is related to '{w}' in {topic}?"
-        options = random.sample(selected, len(selected))
-        quiz.append({"q":question,"opts":options,"ans":w})
-    return quiz
+def generate_fill_in_blank(summary):
+    sentences = [s.strip() for s in re.split(r'[.!?]', summary) if s.strip()]
+    if not sentences: return None
+    suitable_sentences = [s for s in sentences if len(s.split()) > 8]
+    if not suitable_sentences: return None
+    sentence = random.choice(suitable_sentences)
+    words = [w.strip(".,;") for w in sentence.split()]
+    potential_answers = [w for w in words if w and w[0].isupper() and w not in ["A","The","An","In","On","Of","For","With","He","She","It"] and w != words[0]]
+    if not potential_answers: potential_answers = [w for w in words if len(w)>5]
+    if not potential_answers: return None
+    answer = random.choice(potential_answers)
+    blank_sentence = re.sub(r'\b' + re.escape(answer) + r'\b', '_____', sentence, flags=re.IGNORECASE)
+    all_words = [w.strip(".,;").lower() for s in st.session_state.topics_today.values() for w in s.split()]
+    unique_words = list(set(w for w in all_words if len(w)>3 and w.lower()!=answer.lower()))
+    distractors = random.sample(unique_words, min(3,len(unique_words)))
+    options = [answer] + [d.capitalize() for d in distractors]
+    random.shuffle(options)
+    return blank_sentence+"?", answer, options
+
+def generate_quiz_from_summary(summary, topic, num_questions=5):
+    questions=[]
+    for _ in range(num_questions):
+        q = generate_fill_in_blank(summary)
+        if q:
+            blank_sentence, answer, options = q
+            questions.append({"topic":topic, "q":blank_sentence, "ans":answer, "opts":options})
+    return questions
 
 def generate_flashcards_from_summary(summary, topic):
     lines = summary.split(".")
@@ -140,11 +158,9 @@ def evaluate_expression(expr):
     except: return "⚠️ Invalid expression."
 
 def convert_units(value, from_unit, to_unit):
-    conversions = {
-        ("m","cm"):100,("cm","m"):0.01,("kg","g"):1000,("g","kg"):0.001,
-        ("hr","min"):60,("min","hr"):1/60,("m","km"):0.001,("km","m"):1000,
-        ("ft","m"):0.3048,("m","ft"):3.28084,("in","cm"):2.54,("cm","in"):0.393701
-    }
+    conversions = {("m","cm"):100,("cm","m"):0.01,("kg","g"):1000,("g","kg"):0.001,
+                   ("hr","min"):60,("min","hr"):1/60,("m","km"):0.001,("km","m"):1000,
+                   ("ft","m"):0.3048,("m","ft"):3.28084,("in","cm"):2.54,("cm","in"):0.393701}
     if (from_unit,to_unit) in conversions: return f"{value} {from_unit} = {value*conversions[(from_unit,to_unit)]:.4f} {to_unit}"
     return "⚠️ Conversion not supported."
 
@@ -173,18 +189,20 @@ st.markdown("<h3 style='text-align:center;'>Your smart academic assistant for le
 # ------------------------------
 # Pages Implementation
 # ------------------------------
-if page=="🏠 Home": st.write("Welcome! Use the sidebar to explore features.")
+if page=="🏠 Home":
+    st.write("Welcome! Use the sidebar to explore features.")
+
 elif page=="🧠 Explain Topic":
     topic=st.text_input("Enter a topic to explain:")
     if topic:
         summary=summarize_topic(topic)
         st.markdown(summary)
         st.session_state.topics_today[topic]=summary
+
 elif page=="🎯 Quiz Generator":
     if not st.session_state.topics_today: st.info("⚠️ Explore topics first!")
     else:
-        if "dynamic_quiz" not in st.session_state: st.session_state.dynamic_quiz=[]
-        if not st.session_state.dynamic_quiz:
+        if "dynamic_quiz" not in st.session_state or not st.session_state.dynamic_quiz:
             questions=[]
             for topic, summary in st.session_state.topics_today.items():
                 questions.extend(generate_quiz_from_summary(summary, topic))
@@ -205,13 +223,14 @@ elif page=="🎯 Quiz Generator":
                 st.session_state[attempt_key]["correct"]=True
                 st.success("✅ Correct!")
             else: st.error(f"❌ Wrong! Correct answer: {q_data['ans']}")
-            st.rerun()
+            st.experimental_rerun()
         col1,col2=st.columns(2)
         with col1:
-            if st.button("⬅️ Previous", key="prev_q"): st.session_state["quiz_idx"]=(q_idx-1)%len(st.session_state.dynamic_quiz); st.rerun()
+            if st.button("⬅️ Previous", key="prev_q"): st.session_state["quiz_idx"]=(q_idx-1)%len(st.session_state.dynamic_quiz); st.experimental_rerun()
         with col2:
-            if st.button("➡️ Next", key="next_q"): st.session_state["quiz_idx"]=(q_idx+1)%len(st.session_state.dynamic_quiz); st.rerun()
+            if st.button("➡️ Next", key="next_q"): st.session_state["quiz_idx"]=(q_idx+1)%len(st.session_state.dynamic_quiz); st.experimental_rerun()
         st.markdown(f"**Overall Score:** {st.session_state['quiz_score']}/{st.session_state['quiz_count']}")
+
 elif page=="🃏 Flashcards":
     if not st.session_state.topics_today: st.info("⚠️ Explore topics first!")
     else:
@@ -222,9 +241,11 @@ elif page=="🃏 Flashcards":
             st.session_state.flashcards=cards
         for idx, card in enumerate(st.session_state.flashcards):
             with st.expander(card["q"]): st.write(card["a"])
+
 elif page=="🧮 Calculator":
     expr=st.text_input("Enter mathematical expression:")
     if expr: st.write(evaluate_expression(expr))
+
 elif page=="🔄 Unit Converter":
     user_input=st.text_input("Format: <value> <from_unit> to <to_unit>")
     if user_input:
@@ -233,29 +254,39 @@ elif page=="🔄 Unit Converter":
             val=float(val)
             st.write(convert_units(val, from_unit, to_unit))
         except: st.write("⚠️ Invalid input format.")
+
 elif page=="🌦 Weather":
     city=st.text_input("Enter city name:")
     if city: st.write(get_weather(city))
+
+# ---------------- Meditation Timer (Non-blocking) ----------------
 elif page=="🧘 Meditation Timer":
-    minutes=st.number_input("Set Timer (minutes):", min_value=1,max_value=120,value=5)
+    minutes = st.number_input("Set Timer (minutes):", min_value=1, max_value=120, value=5)
+    placeholder = st.empty()
+
     if st.button("Start Timer", disabled=st.session_state.timer_running):
-        st.session_state.timer_running=True
-        placeholder=st.empty()
-        for i in range(minutes*60,0,-1):
-            m,s=divmod(i,60)
+        st.session_state.timer_end_time = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
+        st.session_state.timer_running = True
+
+    if st.session_state.timer_running:
+        now = datetime.datetime.now()
+        remaining = (st.session_state.timer_end_time - now).total_seconds()
+        if remaining > 0:
+            m, s = divmod(int(remaining), 60)
             placeholder.markdown(f"## ⏰ {m:02d}:{s:02d}")
-            time.sleep(1)
-        st.balloons()
-        st.success(f"✅ You meditated for {minutes} minutes!")
-        st.session_state.meditation_minutes+=minutes
-        today=str(datetime.date.today())
-        found=False
-        for entry in st.session_state.meditation_history:
-            if entry["date"]==today:
-                entry["minutes"]+=minutes; found=True
-        if not found: st.session_state.meditation_history.append({"date":today,"minutes":minutes})
-        st.session_state.timer_running=False
-        st.rerun()
+            st.experimental_rerun()
+        else:
+            st.balloons()
+            st.success(f"✅ You meditated for {minutes} minutes!")
+            st.session_state.meditation_minutes += minutes
+            today = str(datetime.date.today())
+            found=False
+            for entry in st.session_state.meditation_history:
+                if entry["date"]==today: entry["minutes"]+=minutes; found=True
+            if not found: st.session_state.meditation_history.append({"date":today,"minutes":minutes})
+            st.session_state.timer_running=False
+            st.session_state.timer_end_time=None
+
 elif page=="📊 Daily Dashboard":
     st.subheader("📊 Daily Dashboard")
     st.metric("Topics Covered Today", len(st.session_state.topics_today))
@@ -263,6 +294,7 @@ elif page=="📊 Daily Dashboard":
     st.metric("Quiz Score", f"{st.session_state.quiz_score}/{st.session_state.quiz_count}")
     st.write("📚 Topics:", list(st.session_state.topics_today.keys()))
     st.write("🕰 Meditation History:", st.session_state.meditation_history)
+
 elif page=="📝 Notes":
     note=st.text_area("Write your study notes here:")
     if st.button("Save Note"): st.success("📝 Note saved!")
