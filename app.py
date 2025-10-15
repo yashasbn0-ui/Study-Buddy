@@ -7,6 +7,7 @@ import requests
 import re
 import random
 import textwrap
+import time # Import time for the meditation timer loop
 
 # ------------------------------
 # Streamlit Config
@@ -18,7 +19,8 @@ st.set_page_config(page_title="Study Buddy", layout="wide")
 # ------------------------------
 st.markdown("""
 <style>
-h1 {text-align:center;font-size:50px;animation: rainbow 5s infinite;}
+/* Targets the main title and the new sidebar title */
+h1 {text-align:center;font-size:50px;animation: rainbow 5s infinite;} 
 @keyframes rainbow {
 0% {color: red;} 16% {color: orange;} 33% {color: yellow;} 50% {color: green;}
 66% {color: blue;} 83% {color: indigo;} 100% {color: violet;}
@@ -179,10 +181,11 @@ def get_weather(city):
     except: return "⚠️ Unable to fetch weather."
 
 # ------------------------------
-# Sidebar Navigation
+# Sidebar Navigation (with Rainbow Heading)
 # ------------------------------
+st.sidebar.markdown("<h1>📚 Navigate</h1>", unsafe_allow_html=True)
 page=st.sidebar.radio(
-    "📚 Navigate",
+    "",
     ["🏠 Home","🧠 Explain Topic","🎯 Quiz Generator","🃏 Flashcards",
      "🧮 Calculator","🔄 Unit Converter","🌦 Weather","🧘 Meditation Timer","📊 Daily Dashboard","📝 Notes"]
 )
@@ -203,10 +206,11 @@ elif page=="🧠 Explain Topic":
         st.markdown(summary)
         st.session_state.topics_today[topic]=summary
 
-elif page == "📝 Quiz":
+# FIXED: Changed from "📝 Quiz" to "🎯 Quiz Generator"
+elif page == "🎯 Quiz Generator":
     st.markdown("<h1>📝 Dynamic Quiz!</h1>", unsafe_allow_html=True)
     if not st.session_state.topics_today:
-        st.info("Explore topics first (on the 'Topic Summary' page) to generate quiz questions!")
+        st.info("Explore topics first (on the 'Explain Topic' page) to generate quiz questions!")
     else:
         if not st.session_state.quiz_questions:
             st.session_state.quiz_questions = generate_quiz_questions(st.session_state.topics_today, total_questions=10)
@@ -222,19 +226,18 @@ elif page == "📝 Quiz":
             st.markdown(f"**Topic:** {q['topic']}")
             st.markdown(f"**Q:** {q['question']}")
 
-            selected_option = st.radio("Select your answer:", q['options'], key=f"quiz_radio_{current_q_index}")
-            attempt_key = f"q_attempt_{current_q_index}"
-            if attempt_key not in st.session_state:
-                st.session_state[attempt_key] = {"attempted": False, "correct": False, "answer": q['answer']}
-            
-            if st.session_state[attempt_key]["attempted"]:
-                if st.session_state[attempt_key]["correct"]:
-                    st.success("🎉 Correct!")
-                else:
-                    st.error(f"❌ Wrong! Correct answer: {q['answer']}")
-            
-            if st.button("Submit Answer", key=f"submit_{current_q_index}", disabled=st.session_state[attempt_key]["attempted"]):
-                if selected_option and not st.session_state[attempt_key]["attempted"]:
+            # Use st.form for better control over radio button interaction
+            with st.form(key=f"quiz_form_{current_q_index}"):
+                selected_option = st.radio("Select your answer:", q['options'], key=f"quiz_radio_{current_q_index}")
+                attempt_key = f"q_attempt_{current_q_index}"
+                
+                # Initialize attempt state if necessary
+                if attempt_key not in st.session_state:
+                    st.session_state[attempt_key] = {"attempted": False, "correct": False, "answer": q['answer']}
+                
+                submitted = st.form_submit_button("Submit Answer", disabled=st.session_state[attempt_key]["attempted"])
+                
+                if submitted and not st.session_state[attempt_key]["attempted"]:
                     st.session_state.quiz_count += 1
                     st.session_state[attempt_key]["attempted"] = True
                     if selected_option == q['answer']:
@@ -244,10 +247,18 @@ elif page == "📝 Quiz":
                     else:
                         st.error(f"❌ Wrong! Correct answer: {q['answer']}")
                     st.rerun()
+
+            # Display feedback outside the form
+            if st.session_state[attempt_key]["attempted"]:
+                if st.session_state[attempt_key]["correct"]:
+                    st.success("🎉 Correct!")
+                else:
+                    st.error(f"❌ Wrong! Correct answer: {q['answer']}")
             
             st.markdown("---")
             col1, col2 = st.columns(2)
             with col1:
+                # Use a unique key for button in the session state
                 if st.button("⬅️ Previous", key="prev_q"):
                     st.session_state.quiz_index = (st.session_state.quiz_index - 1) % len(st.session_state.quiz_questions)
                     st.rerun()
@@ -320,7 +331,6 @@ elif page == "🧘 Meditation Timer":
             mins, secs = divmod(i, 60)
             timer_placeholder.markdown(f"## ⏰ {mins:02d}:{secs:02d}", unsafe_allow_html=True)
             # Sleep for 1 second per loop
-            import time
             time.sleep(1)
 
         # Timer finished
@@ -380,6 +390,3 @@ elif page == "📊 Daily Dashboard":
 elif page=="📝 Notes":
     note=st.text_area("Write your study notes here:")
     if st.button("Save Note"): st.success("📝 Note saved!")
-
-
-
