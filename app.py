@@ -292,15 +292,55 @@ elif page == "🧘 Meditation Timer":
         st.session_state.timer_running = False
 
 
-elif page=="📊 Daily Dashboard":
-    st.subheader("📊 Daily Dashboard")
-    st.metric("Topics Covered Today", len(st.session_state.topics_today))
-    st.metric("Meditation Minutes Today", st.session_state.meditation_minutes)
-    st.metric("Quiz Score", f"{st.session_state.quiz_score}/{st.session_state.quiz_count}")
-    st.write("📚 Topics:", list(st.session_state.topics_today.keys()))
-    st.write("🕰 Meditation History:", st.session_state.meditation_history)
+# ------------------------------
+# Page 7: Daily Dashboard
+# ------------------------------
+elif page == "📊 Daily Dashboard":
+    st.markdown("<h1>📊 Daily Dashboard</h1>", unsafe_allow_html=True)
+    
+    st.subheader("🗓️ Daily Progress Summary")
+    
+    col_t, col_q, col_m = st.columns(3)
+    
+    with col_t:
+        st.subheader("📚 Topics")
+        st.metric("Total Topics Covered", len(st.session_state.topics_today), delta="/10 target")
+
+    with col_q:
+        st.subheader("📝 Quiz")
+        accuracy = (st.session_state.quiz_score / st.session_state.quiz_count * 100) if st.session_state.quiz_count > 0 else 0
+        st.metric("Accuracy", f"{accuracy:.1f}%")
+
+    with col_m:
+        st.subheader("🧘 Meditation")
+        st.metric("Minutes Meditated", st.session_state.meditation_minutes, delta="/30 min target")
+
+    st.markdown("---")
+    
+    st.subheader("📝 Quiz Breakdown")
+    st.metric("Questions Attempted", st.session_state.quiz_count)
+    st.metric("Correct Answers", st.session_state.quiz_score)
+
+    st.markdown("---")
+    
+    st.subheader("📚 Topics Covered")
+    if st.session_state.topics_today:
+        topic_list = "\n".join([f"- **{t}**" for t in st.session_state.topics_today.keys()])
+        st.markdown(topic_list)
+    else:
+        st.info("No topics covered yet today.")
+
+    st.markdown("---")
+    
+    st.subheader("🧘 Meditation Goal Status")
+    if st.session_state.meditation_minutes >= 30:
+        st.success(f"🎯 Daily meditation goal reached! Total minutes: {st.session_state.meditation_minutes}")
+    else:
+        remaining = 30 - st.session_state.meditation_minutes
+        st.info(f"🕒 You need {remaining} more minutes to reach your daily meditation goal.")
 
 elif page=="📝 Notes":
     note=st.text_area("Write your study notes here:")
     if st.button("Save Note"): st.success("📝 Note saved!")
+
 
