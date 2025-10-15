@@ -3,62 +3,19 @@ import wikipedia
 import numpy as np
 import sympy as sp
 import datetime
-import re
 import requests
-import json
-from random import choice, sample, shuffle
+import re
+import random
+import textwrap
 import time
 
 # ------------------------------
 # Streamlit Config
 # ------------------------------
-st.set_page_config(page_title="Study Buddy", page_icon="📚", layout="wide")
+st.set_page_config(page_title="AI-Powered Study Buddy 💡", page_icon="💡", layout="wide")
 
 # ------------------------------
-# API Keys (Optional)
-#
-WOLFRAM_APP_ID = "8L5YE636JU" 
-API_ID_2 = "3KRR2XR9J2"
-API_ID_3 = "3J875Y7PL7"
-
-# Open-Meteo is free and requires no key for basic features
-
-# ------------------------------
-# Session State Initialization
-# ------------------------------
-if "topics_today" not in st.session_state:
-    st.session_state.topics_today = {}
-if "last_reset" not in st.session_state:
-    st.session_state.last_reset = datetime.date.today()
-# Daily reset of topics
-if st.session_state.last_reset != datetime.date.today():
-    st.session_state.topics_today = {}
-    st.session_state.last_reset = datetime.date.today()
-
-# General Tracking
-if "quiz_score" not in st.session_state:
-    st.session_state.quiz_score = 0
-if "quiz_count" not in st.session_state:
-    st.session_state.quiz_count = 0
-if "timer_running" not in st.session_state:
-    st.session_state.timer_running = False
-
-# Meditation Tracking
-if "meditation_minutes" not in st.session_state:
-    # This tracks minutes *today*
-    st.session_state.meditation_minutes = 0 
-if "meditation_history" not in st.session_state:
-    # This tracks all time records: list of {"date": "YYYY-MM-DD", "minutes": N}
-    st.session_state.meditation_history = [] 
-
-# Quiz State
-if "quiz_questions" not in st.session_state:
-    st.session_state.quiz_questions = []
-if "quiz_index" not in st.session_state:
-    st.session_state.quiz_index = 0
-
-# ------------------------------
-# CSS for Glowing Inputs and Bold Effects
+# CSS Effects
 # ------------------------------
 st.markdown("""
 <style>
@@ -95,594 +52,308 @@ button {
     box-shadow: 0 0 10px #ff00ff, 0 0 20px #00ffff, 0 0 30px #ffff00;
     transition: transform 0.2s;
 }
-button:hover {
-    transform: scale(1.05);
-}
+button:hover {transform: scale(1.05);}
 .correct {background-color: #b6f0b6; padding: 5px; border-radius: 5px;}
 .wrong {background-color: #f0b6b6; padding: 5px; border-radius: 5px;}
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------
+# Wolfram API Keys
+# ------------------------------
+wolfram_keys = ["8L5YE636JU", "3KRR2XR9J2", "3J875Y7PL7"]
+wolfram_index = 0
+def get_next_wolfram_key():
+    global wolfram_index
+    key = wolfram_keys[wolfram_index]
+    wolfram_index = (wolfram_index + 1) % len(wolfram_keys)
+    return key
+
+# ------------------------------
+# Session State
+# ------------------------------
+if "topics_today" not in st.session_state: st.session_state.topics_today = {}
+if "last_reset" not in st.session_state: st.session_state.last_reset = datetime.date.today()
+if st.session_state.last_reset != datetime.date.today():
+    st.session_state.topics_today = {}
+    st.session_state.last_reset = datetime.date.today()
+if "quiz_questions" not in st.session_state: st.session_state.quiz_questions = []
+if "quiz_index" not in st.session_state: st.session_state.quiz_index = 0
+if "quiz_score" not in st.session_state: st.session_state.quiz_score = 0
+if "quiz_count" not in st.session_state: st.session_state.quiz_count = 0
+if "meditation_minutes" not in st.session_state: st.session_state.meditation_minutes = 0
+if "meditation_history" not in st.session_state: st.session_state.meditation_history = []
+if "timer_running" not in st.session_state: st.session_state.timer_running = False
+
+# ------------------------------
 # Helper Functions
 # ------------------------------
-def get_wikipedia_summary(topic):
+def fetch_wikipedia(topic):
     try:
-        # Check if topic is a simple single-word greeting/farewell
-        if topic in ["Greetings", "History of greetings", "Hello", "Farewell", "Goodbye", "Saying goodbye", "Parting words"]:
-            wikipedia.set_lang("en")
-            summary = wikipedia.summary(topic, sentences=5) # Use fewer sentences for conversational
-            return summary
-        
-        # Check cache before hitting API for main topics
-        if topic in st.session_state.topics_today:
-            return st.session_state.topics_today[topic]
-
         wikipedia.set_lang("en")
-        summary = wikipedia.summary(topic, sentences=10)
-        st.session_state.topics_today[topic] = summary
-        return summary
-    except wikipedia.exceptions.PageError:
+        return wikipedia.summary(topic, sentences=6)
+    except:
         return None
-    except wikipedia.exceptions.DisambiguationError:
-        # Simple handling for disambiguation by taking the first option
+
+def fetch_wolfram(topic):
+    for _ in range(len(wolfram_keys)):
+        key = get_next_wolfram_key()
         try:
-            suggested_topic = wikipedia.search(topic)[0]
-            summary = wikipedia.summary(suggested_topic, sentences=10)
-            st.session_state.topics_today[topic] = summary
-            return summary
+            url = f"https://api.wolframalpha.com/v1/result?appid={key}&i={requests.utils.quote(topic)}"
+            r = requests.get(url, timeout=8)
+            if r.status_code == 200 and "no result found" not in r.text.lower():
+                return r.text.strip()
         except:
-            return None
-    except Exception:
-        return None
-
-def get_wolfram_result(topic):
-    if not WOLFRAM_APP_ID or WOLFRAM_APP_ID == "YOUR_APP_ID_HERE":
-        return None
-    try:
-        # Wolfram Alpha V1 Simple Result API is great for facts/calculations
-        url = f"http://api.wolframalpha.com/v1/result?appid={WOLFRAM_APP_ID}&i={topic}"
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200 and r.text.strip().lower() != "no result found":
-            return r.text.strip()
-    except:
-        return None
+            continue
     return None
 
-def fetch_summary(topic):
-    # Try Wikipedia first
-    summary = get_wikipedia_summary(topic)
-    if summary:
-        return f"**Source: Wikipedia**\n\n{summary}"
-    
-    # Try WolframAlpha as a fallback, especially good for math/facts/chemistry
-    wolfram = get_wolfram_result(topic)
-    if wolfram:
-        return f"**Source: WolframAlpha**\n\n{wolfram}"
-        
-    return "⚠️ Sorry, no relevant data found on Wikipedia or WolframAlpha."
+def explain_topic(topic):
+    wiki = fetch_wikipedia(topic)
+    wolfram = fetch_wolfram(topic)
+    if wiki and wolfram:
+        return f"**📘 Wikipedia:**\n{wiki}\n\n**🔹 Wolfram:** {wolfram}"
+    elif wiki: return f"**📘 Wikipedia:**\n{wiki}"
+    elif wolfram: return f"**🔹 Wolfram:** {wolfram}"
+    return "⚠️ No explanation found."
 
-# --- Weather/Location Helper Function (Kept) ---
-def get_open_meteo_weather(city_name):
-    # 1. Geocoding: Use Open-Meteo's geocoding to get lat/lon
-    geocode_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_name}&count=1&language=en&format=json"
-    
+def subject_summary(topic, subject):
+    wiki = fetch_wikipedia(topic)
+    wolfram = fetch_wolfram(topic)
+    text = (wiki or "") + "\n" + (wolfram or "")
+    text = re.sub(r'\([^)]*\)', '', text)
+    text = ' '.join(text.split()[:120])
+    return f"### 🧠 {subject} Summary for **{topic.title()}**\n\n{textwrap.fill(text,95)}"
+
+def generate_quiz(topic):
+    summary = fetch_wikipedia(topic)
+    if not summary: return ["⚠️ Not enough data for quiz."]
+    words = [w for w in re.findall(r'\b[A-Za-z]{6,}\b', summary)]
+    random.shuffle(words)
+    selected = words[:4]
+    quiz = []
+    for i, w in enumerate(selected):
+        question = f"Q{i+1}. What does '{w}' relate to in {topic}?"
+        options = random.sample(selected, len(selected))
+        quiz.append((question, options, w))
+    return quiz
+
+def generate_flashcards(topic):
+    summary = fetch_wikipedia(topic)
+    if not summary: return []
+    lines = summary.split(".")
+    cards = []
+    for line in lines[:5]:
+        words = re.findall(r'\b[A-Za-z]{6,}\b', line)
+        if len(words)>1:
+            cards.append((f"What is '{words[0]}' related to?", line.strip()))
+    return cards
+
+def evaluate_expression(expr):
     try:
-        r_geo = requests.get(geocode_url, timeout=10)
-        r_geo.raise_for_status() # Raise exception for bad status codes
-        
-        geo_data = r_geo.json()
-        if not geo_data.get('results'):
-            return "⚠️ City not found in geocoding service."
-
-        # Extract latitude, longitude, and display name
-        result = geo_data['results'][0]
-        latitude = result['latitude']
-        longitude = result['longitude']
-        display_name = f"{result.get('name', city_name)}, {result.get('country', '')}"
-
-        # 2. Weather API Call: Get current weather
-        weather_url = (
-            f"https://api.open-meteo.com/v1/forecast?"
-            f"latitude={latitude}&longitude={longitude}&"
-            f"current=temperature_2m,weather_code,wind_speed_10m&"
-            f"temperature_unit=celsius&wind_speed_unit=kmh&"
-            f"forecast_days=1"
-        )
-        
-        r_weather = requests.get(weather_url, timeout=10)
-        r_weather.raise_for_status()
-        weather_data = r_weather.json()
-        
-        current = weather_data['current']
-        
-        # Simple weather code interpretation (Open-Meteo uses WMO codes)
-        weather_code = current['weather_code']
-        # Simplified mapping (WMO codes: 0=clear, 1-3=partly cloudy, 51-65=rain, 71-75=snow, 95=thunderstorm)
-        weather_description = "Clear Sky ☀️"
-        if 1 <= weather_code <= 3:
-            weather_description = "Partly Cloudy 🌥️"
-        elif 51 <= weather_code <= 65:
-            weather_description = "Rain 🌧️"
-        elif 71 <= weather_code <= 75:
-            weather_description = "Snow ❄️"
-        elif 95 == weather_code:
-            weather_description = "Thunderstorm ⛈️"
-            
-        
-        return (
-            f"📍 **Location:** {display_name} (Lat: {latitude:.2f}, Lon: {longitude:.2f})\n\n"
-            f"**Current Weather:**\n"
-            f"- **Temperature:** {current['temperature_2m']} °C\n"
-            f"- **Condition:** {weather_description}\n"
-            f"- **Wind Speed:** {current['wind_speed_10m']} km/h"
-        )
-
-    except requests.exceptions.RequestException as e:
-        return f"⚠️ Error fetching weather data: {e}"
-    except Exception as e:
-        return f"⚠️ An unexpected error occurred: {e}"
-
-
-# ------------------------------
-# Conversational / Farewell Inputs
-# ------------------------------
-def get_conversational_response(user_input):
-    user_input_lower = user_input.lower().strip()
-    if not user_input_lower:
-        return None
-
-    farewells = ["bye", "goodbye", "see you", "farewell", "good night", "take care"]
-    greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]
-    
-    # Regex to check for exact word match with word boundaries (\b)
-    farewell_regex = r"\b(" + "|".join(re.escape(f) for f in farewells) + r")\b"
-    greeting_regex = r"\b(" + "|".join(re.escape(g) for g in greetings) + r")\b"
-
-    # Check for farewell
-    if re.search(farewell_regex, user_input_lower):
-        topics = ["Farewell", "Goodbye", "Saying goodbye", "Parting words"]
-        for topic in topics:
-            summary = get_wikipedia_summary(topic)
-            if summary:
-                # Using a fixed snippet for consistency with the conversational tone
-                return f"**You said:** {user_input}\n\n**Here's something interesting about farewells:**\nFarewell rituals often symbolize closure and hope for future encounters. They can range from simple waves to elaborate ceremonies, reflecting cultural norms around separation and reunion. {summary.split('.')[0]}."
-        return "👋 Goodbye! Take care!"
-    
-    # Check for greeting
-    elif re.search(greeting_regex, user_input_lower):
-        topics = ["Greetings", "History of greetings", "Hello"]
-        for topic in topics:
-            summary = get_wikipedia_summary(topic)
-            if summary:
-                # Using the exact snippet from the image for consistency
-                return f"**You said:** {user_input}\n\n**Did you know?** Greeting is an act of communication in which human beings intentionally make their presence known to each other, to show attention to, and to suggest a type of relationship (usually cordial) or social status (formal or informal) between individuals or groups of people coming in contact with each other. Greetings are sometimes just used prior to a conversation or to greet in passing, such as on a sidewalk or trail. While greeting customs are highly culture- and situation-specific and may change within a culture depending on social status and relationship, they exist in all known human cultures. Greetings can be expressed both audibly and physically, and often involve a combination of the two. This topic excludes military and ceremonial salutes but includes rituals other than gestures. A greeting, or salutation, can also be expressed in written communications, such as letters and emails. Some epochs and cultures have had very elaborate greeting rituals, e.g. greeting a sovereign. Conversely, secret societies have often furtive or arcane greeting gestures and rituals, such as a secret handshake, which allows members to recognize each other. In some languages and cultures, the word or gesture is used as both greeting and farewell."
-                
-        return f"Hello! How can I assist you today?"
-    
-    return None
-
-# ------------------------------
-# Unit Converter
-# ------------------------------
-def unit_converter(query):
-    # Regex to check for the 'value unit1 to unit2' format
-    conversion_match = re.search(r"([-+]?\d*\.?\d+)\s*([a-z°]+)\s*to\s*([a-z°]+)", query.lower().replace(" ", ""))
-    if not conversion_match:
-        return None # Return None if not a valid conversion format
-
-    value, from_unit, to_unit = conversion_match.groups()
-    try:
-        value = float(value)
+        result = sp.sympify(expr)
+        return f"✅ Result: {result} = {float(result):.4f}"
     except:
-        return "⚠️ Invalid numeric value."
+        return "⚠️ Invalid expression."
 
-    conversions = {
-        # Length
-        ("m", "km"): lambda x: x/1000, ("km", "m"): lambda x: x*1000,
-        ("cm", "m"): lambda x: x/100, ("m", "cm"): lambda x: x*100,
-        ("mm", "m"): lambda x: x/1000, ("m", "mm"): lambda x: x*1000,
-        ("m", "ft"): lambda x: x*3.28084, ("ft", "m"): lambda x: x/3.28084,
-        ("in", "cm"): lambda x: x*2.54, ("cm", "in"): lambda x: x/2.54,
-        ("ft", "in"): lambda x: x*12, ("in", "ft"): lambda x: x/12,
-        # Temperature
-        ("°c", "°f"): lambda x: (x*9/5)+32, ("°f", "°c"): lambda x: (x-32)*5/9,
-        # Weight
-        ("kg", "g"): lambda x: x*1000, ("g", "kg"): lambda x: x/1000,
-        ("kg", "lb"): lambda x: x*2.20462, ("lb", "kg"): lambda x: x/2.20462,
-        ("oz", "g"): lambda x: x*28.3495, ("g", "oz"): lambda x: x/28.3495,
-        ("lb", "oz"): lambda x: x*16, ("oz", "lb"): lambda x: x/16,
-        # Time
-        ("hours", "minutes"): lambda x: x*60, ("minutes", "hours"): lambda x: x/60,
-    }
+def convert_units(value, from_unit, to_unit):
+    conversions = {("m","cm"):100,("cm","m"):0.01,("kg","g"):1000,("g","kg"):0.001,("hr","min"):60,("min","hr"):1/60}
+    if (from_unit,to_unit) in conversions:
+        return f"{value} {from_unit} = {value*conversions[(from_unit,to_unit)]} {to_unit}"
+    return "⚠️ Conversion not supported."
 
-    func = conversions.get((from_unit, to_unit))
-    if func:
-        result = func(value)
-        return f"{value} {from_unit} = {result:.4f} {to_unit}"
-    else:
-        return f"⚠️ Conversion from '{from_unit}' to '{to_unit}' not supported."
-
-# ------------------------------
-# Quiz Functions
-# ------------------------------
-def generate_fill_in_blank(summary):
-    # Split summary into sentences, keeping only non-empty ones
-    sentences = [s.strip() for s in re.split(r'[.!?]', summary) if s.strip()]
-    if not sentences:
-        return None
-    
-    # Select a sentence that is not too short for a question
-    suitable_sentences = [s for s in sentences if len(s.split()) > 8]
-    if not suitable_sentences:
-        return None
-        
-    sentence = choice(suitable_sentences)
-    
-    # Select words to potentially blank out (nouns, proper nouns, adjectives are best)
-    words = [w.strip(".,;") for w in sentence.split()]
-    potential_answers = [
-        w.strip(".,;") for w in words
-        if w and w[0].isupper() and w not in ["A", "The", "An", "In", "On", "Of", "For", "With", "He", "She", "It"]
-        and w != words[0].strip(".,;") # Exclude first word of sentence
-    ]
-    
-    # Fallback to a long word if no capital words are found
-    if not potential_answers:
-          potential_answers = [w.strip(".,;") for w in words if len(w) > 5]
-
-    if not potential_answers:
-        return None
-
-    answer = choice(potential_answers)
-    
-    # Create the blanked sentence. Use regex to replace the answer word only.
-    blank_sentence = re.sub(r'\b' + re.escape(answer) + r'\b', '_____', sentence, flags=re.IGNORECASE)
-    
-    # Generate distractors from other words in all summaries
-    all_words = [w.strip(".,;").lower() for s in st.session_state.topics_today.values() for w in s.split()]
-    unique_words = list(set(w for w in all_words if len(w) > 3 and w.lower() != answer.lower()))
-    
-    # Select 3 distractors
-    distractors = sample(unique_words, min(3, len(unique_words)))
-    
-    # Ensure options are properly capitalized (use original answer capitalization)
-    distractor_options = [d.capitalize() for d in distractors]
-    
-    options = [answer] + distractor_options
-    shuffle(options)
-    
-    return blank_sentence + "?", answer, options
-
-def generate_quiz_questions(topics_dict, total_questions=10):
-    questions = []
-    all_summaries = list(topics_dict.items())
-    topic_idx = 0
-
-    while len(questions) < total_questions and all_summaries and topic_idx < 100 * len(all_summaries):
-        topic, summary = all_summaries[topic_idx % len(all_summaries)]
-        q = generate_fill_in_blank(summary)
-        if q:
-            blank_sentence, answer, options = q
-            # Check for duplicates
-            if not any(d["question"] == blank_sentence for d in questions):
-                questions.append({"topic": topic, "question": blank_sentence, "answer": answer, "options": options})
-        topic_idx += 1
-        
-    shuffle(questions)
-    return questions[:total_questions]
+def get_weather(city):
+    try:
+        geo = requests.get(f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1").json()
+        if not geo.get("results"): return "⚠️ City not found."
+        lat, lon = geo["results"][0]["latitude"], geo["results"][0]["longitude"]
+        weather = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true").json()
+        info = weather.get("current_weather", {})
+        return f"🌤 Temperature: {info.get('temperature')}°C, Windspeed: {info.get('windspeed')} km/h"
+    except:
+        return "⚠️ Unable to fetch weather."
 
 # ------------------------------
 # Sidebar Navigation
 # ------------------------------
-st.sidebar.title("🧭 Study Buddy Menu")
-page = st.sidebar.radio("Choose a page:", [
-    "📚 Topic Summary", 
-    "🌍 Weather & Location",
-    "🧮 Scientific Calculator + Unit Converter", 
-    "📝 Quiz", 
-    "🧘 Meditation Timer", 
-    "📊 Daily Dashboard"
-])
+page = st.sidebar.radio(
+    "📚 Navigate",
+    ["🏠 Home","🧠 Explain Topic","📘 Subject Summarizer","🎯 Quiz Generator","🃏 Flashcards",
+     "🧮 Calculator","🔄 Unit Converter","🌦 Weather","🧘 Meditation Timer","📊 Daily Dashboard","📝 Notes"]
+)
 
 # ------------------------------
-# Page 1: Topic Summary
+# Header
 # ------------------------------
-if page == "📚 Topic Summary":
-    st.markdown("<h1>📚 Study Buddy: Topic Summary</h1>", unsafe_allow_html=True)
-    st.markdown("Enter any topic, including **Chemistry concepts** (e.g., 'Methane', 'Balance $\text{H}_2 + \text{O}_2$', 'Quantum Physics') or conversation starters ('hello', 'bye').")
-    
-    topic_input = st.text_input("Enter a topic or query:", key="topic_input_text")
-    
-    if topic_input:
-        with st.spinner("🔍 Gathering data..."):
-            conv_response = get_conversational_response(topic_input)
-            
-            if conv_response:
-                st.markdown(conv_response)
-            else:
-                summary = fetch_summary(topic_input)
-                st.markdown("### 🧾 Summary")
-                st.write(summary)
-
-        st.markdown("---")
-        st.subheader("📈 Progress Tracker")
-        st.metric("Topics Covered Today", len(st.session_state.topics_today), delta="/ 10 target")
-        if len(st.session_state.topics_today) >= 10:
-            st.success("🎯 Daily goal reached!")
+st.markdown("<h1>AI-Powered Study Buddy 💡</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align:center;'>Your smart academic assistant for learning made simple.</h3>", unsafe_allow_html=True)
 
 # ------------------------------
-# Page 2: Weather & Location
+# Pages Implementation
 # ------------------------------
-elif page == "🌍 Weather & Location":
-    st.markdown("<h1>🌍 Weather & Location</h1>", unsafe_allow_html=True)
-    st.markdown("Get the current weather for any major city using the **Open-Meteo API**.")
 
-    city_input = st.text_input("Enter a City Name (e.g., 'London', 'Tokyo', 'New York'):", key="city_input_text")
-    
-    if city_input:
-        with st.spinner("☁️ Fetching weather data..."):
-            weather_report = get_open_meteo_weather(city_input)
-            
-            st.markdown("### ☀️ Weather Report")
-            st.markdown(weather_report)
-            
-            # Add the location as a topic covered
-            st.session_state.topics_today[f"Weather in {city_input}"] = weather_report
+# Home Page
+if page=="🏠 Home":
+    st.write("Welcome! Use the sidebar to explore features: Explain Topic, Summarizer, Quiz, Flashcards, Calculator, Converter, Weather, Meditation, Dashboard, Notes.")
 
-# ------------------------------
-# Page 3: Calculator + Unit Converter
-# ------------------------------
-elif page == "🧮 Scientific Calculator + Unit Converter":
-    st.markdown("<h1>🧮 Calculator + Unit Converter</h1>", unsafe_allow_html=True)
-    st.markdown("You can perform scientific calculations (e.g., `np.sin(np.pi/2)`, `sp.integrate(x**2, x)`) or quick unit conversions (e.g., '5 km to m', '10 ft to m', '70 kg to lb', '100 °C to °F').")
+# Explain Topic
+elif page=="🧠 Explain Topic":
+    topic = st.text_input("Enter a topic to explain:")
+    if topic:
+        result = explain_topic(topic)
+        st.markdown(result)
+        st.session_state.topics_today[topic] = result
 
-    calc_input = st.text_area("Enter expression or conversion:", height=150)
-    
-    if calc_input:
-        conversion_result = unit_converter(calc_input)
-        
-        if conversion_result and not conversion_result.startswith("⚠️"):
-            st.success("✅ Conversion Successful")
-            st.code(conversion_result)
-        elif conversion_result and conversion_result.startswith("⚠️"):
-              st.error(conversion_result)
-        else:
-            # Try scientific calculation as fallback
-            try:
-                # Define symbols for symbolic math (SymPy)
-                x, y, z = sp.symbols("x y z")
-                local_env = {
-                    "np": np, "sp": sp, "sin": np.sin, "cos": np.cos, "tan": np.tan,
-                    "pi": np.pi, "sqrt": np.sqrt, "log": np.log, "log10": np.log10, 
-                    "diff": sp.diff, "integrate": sp.integrate, "simplify": sp.simplify,
-                    "limit": sp.limit, "symbols": sp.symbols, "ln": sp.ln, "exp": sp.exp,
-                    "x": x, "y": y, "z": z # Inject symbols directly
-                }
-                
-                # Use a safe environment for eval
-                result = eval(calc_input, {"__builtins__": {}}, local_env)
-                
-                # Pretty print SymPy results
-                if isinstance(result, sp.Expr) or isinstance(result, sp.matrices.common.MatrixCommon):
-                    st.success("✅ Symbolic Calculation Successful (using SymPy)")
-                    st.latex(sp.latex(result))
-                else:
-                    st.success("✅ Numeric Calculation Successful (using NumPy)")
-                    st.code(f"Result: {result}", language="python")
-                    
-            except Exception as e:
-                st.error(f"❌ Calculation Error: {e}")
+# Subject Summarizer
+elif page=="📘 Subject Summarizer":
+    subject = st.selectbox("Select Subject:", ["Chemistry","Biology","Physics","History","Math"])
+    topic = st.text_input(f"Enter {subject} topic:")
+    if topic:
+        summary = subject_summary(topic, subject)
+        st.markdown(summary)
+        st.session_state.topics_today[topic] = summary
 
 # ------------------------------
-# Page 4: Quiz
+# Quiz Generator (Dynamic)
 # ------------------------------
-elif page == "📝 Quiz":
-    st.markdown("<h1>📝 Dynamic Quiz!</h1>", unsafe_allow_html=True)
+elif page=="🎯 Quiz Generator":
     if not st.session_state.topics_today:
-        st.info("Explore topics first (on the 'Topic Summary' page) to generate quiz questions!")
+        st.info("⚠️ Explore some topics first to generate a quiz!")
     else:
-        # Generate questions if the list is empty
-        if not st.session_state.quiz_questions:
-            st.session_state.quiz_questions = generate_quiz_questions(st.session_state.topics_today, total_questions=10)
-            st.session_state.quiz_index = 0
-            
-        if not st.session_state.quiz_questions:
-              st.warning("⚠️ Could not generate quiz questions from the topics covered. Try exploring more detailed topics.")
-        else:
-            current_q_index = st.session_state.quiz_index % len(st.session_state.quiz_questions)
-            q = st.session_state.quiz_questions[current_q_index]
-            
-            # Use unique key for question text to prevent stale display on navigation
-            st.markdown(f"**Question {current_q_index + 1} of {len(st.session_state.quiz_questions)}**")
-            st.markdown(f"**Topic:** {q['topic']}")
-            st.markdown(f"**Q:** {q['question']}")
+        if "dynamic_quiz" not in st.session_state:
+            st.session_state.dynamic_quiz = []
 
-            # Use a unique key for the radio button
-            selected_option = st.radio("Select your answer:", q['options'], key=f"quiz_radio_{current_q_index}")
-            
-            # Store the state of the current question attempt
-            attempt_key = f"q_attempt_{current_q_index}"
-            if attempt_key not in st.session_state:
-                st.session_state[attempt_key] = {"attempted": False, "correct": False, "answer": q['answer']}
-            
-            # Display result if already attempted
-            if st.session_state[attempt_key]["attempted"]:
-                if st.session_state[attempt_key]["correct"]:
-                    st.success("🎉 Correct!")
-                else:
-                    st.error(f"❌ Wrong! Correct answer: {q['answer']}")
-            
-            # Submit button logic
-            if st.button("Submit Answer", key=f"submit_{current_q_index}", disabled=st.session_state[attempt_key]["attempted"]):
-                if selected_option:
-                    # Only count the score if it's the first attempt for this question
-                    if not st.session_state[attempt_key]["attempted"]:
-                        st.session_state.quiz_count += 1
-                        st.session_state[attempt_key]["attempted"] = True
-                        
-                        if selected_option == q['answer']:
-                            st.session_state.quiz_score += 1
-                            st.session_state[attempt_key]["correct"] = True
-                            st.success("🎉 Correct!")
-                        else:
-                            st.error(f"❌ Wrong! Correct answer: {q['answer']}")
-                        
-                        # --- FIX: Use st.rerun() ---
-                        st.rerun()
-            
-            st.markdown("---")
-            col1, col2 = st.columns(2)
-            with col1:
-                # Previous button
-                if st.button("⬅️ Previous", key="prev_q"):
-                    st.session_state.quiz_index = (st.session_state.quiz_index - 1) % len(st.session_state.quiz_questions)
-                    # --- FIX: Use st.rerun() ---
-                    st.rerun()
-            with col2:
-                # Next button
-                if st.button("➡️ Next", key="next_q"):
-                    st.session_state.quiz_index = (st.session_state.quiz_index + 1) % len(st.session_state.quiz_questions)
-                    # --- FIX: Use st.rerun() ---
-                    st.rerun()
-            
-            st.markdown("---")
-            st.info(f"Overall Score: {st.session_state.quiz_score}/{st.session_state.quiz_count}")
+        # Generate quiz if empty
+        if not st.session_state.dynamic_quiz:
+            questions = []
+            for topic, summary in st.session_state.topics_today.items():
+                # Extract words >5 chars for blanks
+                words = [w for w in re.findall(r'\b[A-Za-z]{6,}\b', summary)]
+                random.shuffle(words)
+                selected = words[:4] if len(words)>=4 else words
+                for i, w in enumerate(selected):
+                    question_text = f"Q{i+1}. What is related to '{w}' in {topic}?"
+                    options = random.sample(selected, len(selected))
+                    questions.append({"q": question_text, "opts": options, "ans": w})
+            random.shuffle(questions)
+            st.session_state.dynamic_quiz = questions
 
-            # Reset Quiz button (separate from the rest)
-            if st.button("Reset Quiz", key="reset_quiz_all"):
-                st.session_state.quiz_questions = []
-                st.session_state.quiz_index = 0
-                st.session_state.quiz_score = 0
-                st.session_state.quiz_count = 0
-                # Clear all question attempt states
-                for key in list(st.session_state.keys()):
-                    if key.startswith("q_attempt_"):
-                        del st.session_state[key]
-                # --- FIX: Use st.rerun() ---
+        # Show current question
+        q_idx = st.session_state.get("quiz_idx", 0) % len(st.session_state.dynamic_quiz)
+        q_data = st.session_state.dynamic_quiz[q_idx]
+
+        st.markdown(f"**Question {q_idx+1}/{len(st.session_state.dynamic_quiz)}**")
+        st.markdown(f"**{q_data['q']}**")
+
+        choice_selected = st.radio("Select your answer:", q_data["opts"], key=f"quiz_{q_idx}")
+
+        attempt_key = f"attempt_{q_idx}"
+        if attempt_key not in st.session_state:
+            st.session_state[attempt_key] = {"done": False, "correct": False}
+
+        if st.button("Submit Answer", key=f"submit_{q_idx}", disabled=st.session_state[attempt_key]["done"]):
+            st.session_state[attempt_key]["done"] = True
+            st.session_state["quiz_count"] += 1
+            if choice_selected == q_data["ans"]:
+                st.session_state["quiz_score"] += 1
+                st.session_state[attempt_key]["correct"] = True
+                st.success("✅ Correct!")
+            else:
+                st.error(f"❌ Wrong! Correct answer: {q_data['ans']}")
+            st.rerun()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⬅️ Previous", key="prev_q"):
+                st.session_state["quiz_idx"] = (q_idx - 1) % len(st.session_state.dynamic_quiz)
+                st.rerun()
+        with col2:
+            if st.button("➡️ Next", key="next_q"):
+                st.session_state["quiz_idx"] = (q_idx + 1) % len(st.session_state.dynamic_quiz)
                 st.rerun()
 
+        st.markdown(f"**Overall Score:** {st.session_state['quiz_score']}/{st.session_state['quiz_count']}")
+
 
 # ------------------------------
-# Page 5: Meditation Timer (UPDATED)
+# Flashcards (Dynamic)
 # ------------------------------
-elif page == "🧘 Meditation Timer":
-    st.markdown("<h1>🧘 Meditation Timer</h1>", unsafe_allow_html=True)
-    
+elif page=="🃏 Flashcards":
+    if not st.session_state.topics_today:
+        st.info("⚠️ Explore some topics first to generate flashcards!")
+    else:
+        if "flashcards" not in st.session_state or not st.session_state.flashcards:
+            cards = []
+            for topic, summary in st.session_state.topics_today.items():
+                lines = summary.split(".")
+                for line in lines[:5]:
+                    words = re.findall(r'\b[A-Za-z]{6,}\b', line)
+                    if len(words) > 1:
+                        cards.append({"q": f"What is '{words[0]}' related to in {topic}?", "a": line.strip()})
+            st.session_state.flashcards = cards
+
+        for idx, card in enumerate(st.session_state.flashcards):
+            with st.expander(card["q"]):
+                st.write(card["a"])
+
+
+# Calculator
+elif page=="🧮 Calculator":
+    expr = st.text_input("Enter mathematical expression:")
+    if expr:
+        st.write(evaluate_expression(expr))
+
+# Unit Converter
+elif page=="🔄 Unit Converter":
+    user_input = st.text_input("Format: <value> <from_unit> to <to_unit>")
+    if user_input:
+        try:
+            val, from_unit, _, to_unit = user_input.split()
+            val = float(val)
+            st.write(convert_units(val, from_unit, to_unit))
+        except:
+            st.write("⚠️ Invalid input format.")
+
+# Weather
+elif page=="🌦 Weather":
+    city = st.text_input("Enter city name:")
+    if city:
+        st.write(get_weather(city))
+
+# Meditation Timer
+elif page=="🧘 Meditation Timer":
     minutes = st.number_input("Set Timer (minutes):", min_value=1, max_value=120, value=5)
-    
     if st.button("Start Timer", disabled=st.session_state.timer_running):
-        st.session_state.timer_running = True
-        st.info("🧘 Meditation in progress... Find a quiet space and breathe.")
-        timer_placeholder = st.empty()
-        
-        # Streamlit's simple sleep implementation for a timer
-        for i in range(minutes * 60, 0, -1):
-            mins, secs = divmod(i, 60)
-            timer_placeholder.markdown(f"## ⏰ {mins:02d}:{secs:02d}", unsafe_allow_html=True)
+        st.session_state.timer_running=True
+        placeholder = st.empty()
+        for i in range(minutes*60,0,-1):
+            m,s = divmod(i,60)
+            placeholder.markdown(f"## ⏰ {m:02d}:{s:02d}")
             time.sleep(1)
-        
-        # Timer finished
         st.balloons()
-        st.success(f"✅ Time's up! You meditated for **{minutes} minutes**.")
-        
-        # --- Update Tracking ---
+        st.success(f"✅ You meditated for {minutes} minutes!")
         st.session_state.meditation_minutes += minutes
-        
-        # Record session in history
-        today_date_str = str(datetime.date.today())
-        
-        # Check if an entry for today already exists (to aggregate if multiple sessions happen)
-        found_today = False
+        today = str(datetime.date.today())
+        found=False
         for entry in st.session_state.meditation_history:
-            if entry["date"] == today_date_str:
-                entry["minutes"] += minutes
-                found_today = True
-                break
-        
-        if not found_today:
-            st.session_state.meditation_history.append({"date": today_date_str, "minutes": minutes})
-
-        st.session_state.timer_running = False
-        # --- FIX: Use st.rerun() ---
+            if entry["date"]==today:
+                entry["minutes"]+=minutes
+                found=True
+        if not found:
+            st.session_state.meditation_history.append({"date":today,"minutes":minutes})
+        st.session_state.timer_running=False
         st.rerun()
 
-# ------------------------------
-# Page 6: Daily Dashboard (UPDATED)
-# ------------------------------
-elif page == "📊 Daily Dashboard":
-    st.markdown("<h1>📊 Daily Dashboard</h1>", unsafe_allow_html=True)
-    
-    # Calculate lifetime stats
-    total_minutes_all_time = sum(item["minutes"] for item in st.session_state.meditation_history)
-    total_sessions_all_time = len(st.session_state.meditation_history)
-    
-    st.subheader("🗓️ Daily Progress Summary")
-    
-    col_t, col_q, col_m = st.columns(3)
-    
-    with col_t:
-        st.subheader("📚 Topics")
-        st.metric("Topics Covered Today", len(st.session_state.topics_today), delta="/10 target")
+# Daily Dashboard
+elif page=="📊 Daily Dashboard":
+    st.subheader("📊 Daily Dashboard")
+    st.metric("Topics Covered Today", len(st.session_state.topics_today))
+    st.metric("Meditation Minutes Today", st.session_state.meditation_minutes)
+    st.metric("Quiz Score", f"{st.session_state.quiz_score}/{st.session_state.quiz_count}")
+    st.write("📚 Topics:", list(st.session_state.topics_today.keys()))
+    st.write("🕰 Meditation History:", st.session_state.meditation_history)
 
-    with col_q:
-        st.subheader("📝 Quiz")
-        accuracy = (st.session_state.quiz_score / st.session_state.quiz_count * 100) if st.session_state.quiz_count > 0 else 0
-        st.metric("Today's Accuracy", f"{accuracy:.1f}%")
-
-    with col_m:
-        st.subheader("🧘 Meditation")
-        st.metric("Minutes Meditated Today", st.session_state.meditation_minutes, delta="/30 min target")
-
-    st.markdown("---")
-    
-    if st.session_state.meditation_minutes >= 30:
-        st.success("🎯 Daily meditation goal reached!")
-
-    ## All-Time Meditation Records
-    st.subheader("🌳 Meditation Records (All-Time)")
-    col_total_min, col_total_sessions = st.columns(2)
-    
-    with col_total_min:
-        st.metric("Total Minutes Meditated", total_minutes_all_time)
-        
-    with col_total_sessions:
-        st.metric("Total Recorded Sessions", total_sessions_all_time)
-
-    st.markdown("---")
-    
-    ## Detailed Breakdown
-    st.subheader("🕰️ Meditation History")
-    if st.session_state.meditation_history:
-        # Sort history by date descending
-        sorted_history = sorted(st.session_state.meditation_history, key=lambda x: x['date'], reverse=True)
-        
-        history_list = []
-        for item in sorted_history:
-            history_list.append(f"- **{item['date']}**: {item['minutes']} minutes")
-        
-        st.markdown("\n".join(history_list))
-    else:
-        st.info("No meditation sessions recorded yet.")
-
-    st.markdown("---")
-
-    st.subheader("📝 Quiz Breakdown")
-    st.metric("Questions Attempted", st.session_state.quiz_count)
-    st.metric("Correct Answers", st.session_state.quiz_score)
-
-    st.markdown("---")
-    
-    st.subheader("📚 Topics Covered Today")
-    if st.session_state.topics_today:
-        topic_list = "\n".join([f"- **{t}**" for t in st.session_state.topics_today.keys()])
-        st.markdown(topic_list)
-    else:
-        st.info("No topics covered yet today.")
-
-
-# ------------------------------
-# Footer
-# ------------------------------
-st.markdown("---")
-st.caption("Made with ❤️ using Streamlit + Wikipedia + WolframAlpha (optional) + Built-in Converter + Conversational Responses")
+# Notes
+elif page=="📝 Notes":
+    note = st.text_area("Write your study notes here:")
+    if st.button("Save Note"):
+        st.success("📝 Note saved!")
