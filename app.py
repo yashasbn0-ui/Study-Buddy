@@ -265,38 +265,53 @@ elif page=="🔄 Unit Converter":
 elif page=="🌦 Weather":
     city=st.text_input("Enter city name:")
     if city: st.write(get_weather(city))
-
+        
 elif page=="🧘 Meditation Timer":
     minutes = st.number_input("Set Timer (minutes):", min_value=1, max_value=120, value=5)
     placeholder = st.empty()
     progress_bar = st.progress(0)
+
+    if "timer_start_time" not in st.session_state:
+        st.session_state.timer_start_time = None
+
     if st.button("Start Timer") and not st.session_state.timer_running:
+        st.session_state.timer_start_time = datetime.datetime.now()
         st.session_state.timer_end_time = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
         st.session_state.timer_running = True
+
     if st.session_state.timer_running:
         remaining = (st.session_state.timer_end_time - datetime.datetime.now()).total_seconds()
         total_seconds = minutes * 60
+
         if remaining > 0:
             m, s = divmod(int(remaining), 60)
             placeholder.markdown(f"## ⏰ {m:02d}:{s:02d}")
             progress = int((total_seconds - remaining) / total_seconds * 100)
             progress_bar.progress(progress)
             time.sleep(1)
-            st.experimental_rerun()
+            st.experimental_rerun()  # smooth update
         else:
+            placeholder.markdown(f"## ⏰ 00:00")
+            progress_bar.progress(100)
             st.balloons()
             st.success(f"✅ You meditated for {minutes} minutes!")
+
+            # Update session state
             st.session_state.meditation_minutes += minutes
             today = str(datetime.date.today())
             found=False
             for entry in st.session_state.meditation_history:
-                if entry["date"]==today:
-                    entry["minutes"]+=minutes
+                if entry["date"] == today:
+                    entry["minutes"] += minutes
                     found=True
-            if not found: st.session_state.meditation_history.append({"date":today,"minutes":minutes})
-            st.session_state.timer_running=False
-            st.session_state.timer_end_time=None
-            progress_bar.progress(100)
+            if not found:
+                st.session_state.meditation_history.append({"date": today, "minutes": minutes})
+
+            # Reset timer
+            st.session_state.timer_running = False
+            st.session_state.timer_start_time = None
+            st.session_state.timer_end_time = None
+
 
 elif page=="📊 Daily Dashboard":
     st.subheader("📊 Daily Dashboard")
@@ -309,3 +324,4 @@ elif page=="📊 Daily Dashboard":
 elif page=="📝 Notes":
     note=st.text_area("Write your study notes here:")
     if st.button("Save Note"): st.success("📝 Note saved!")
+
