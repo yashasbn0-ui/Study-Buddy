@@ -7,7 +7,7 @@ import requests
 import re
 import random
 import textwrap
-import time # Import time for the meditation timer loop
+import time 
 
 # ------------------------------
 # Streamlit Config
@@ -124,23 +124,42 @@ def generate_fill_in_blank(summary):
     suitable_sentences = [s for s in sentences if len(s.split()) > 8]
     if not suitable_sentences: return None
     sentence = random.choice(suitable_sentences)
-    words = [w.strip(".,;") for w in sentence.split()]
-    potential_answers = [w for w in words if w[0].isupper() and w not in ["A","The","An","In","On","Of","For","With","He","She","It"] and w != words[0]]
-    if not potential_answers: potential_answers = [w for w in words if len(w) > 5]
-    if not potential_answers: return None
+    
+    # FIX 1: Ensure words are not empty after stripping punctuation
+    words = [w.strip(".,;") for w in sentence.split() if w.strip(".,;")]
+    if not words: return None 
+
+    # FIX 2: Added 'w and' check to prevent IndexError if a list element is an empty string
+    potential_answers = [w for w in words if w and w[0].isupper() and w not in ["A","The","An","In","On","Of","For","With","He","She","It"] and w != words[0]]
+    
+    if not potential_answers: 
+        potential_answers = [w for w in words if len(w) > 5]
+    
+    if not potential_answers: return None # Exit if no suitable answer is found
+    
     answer = random.choice(potential_answers)
+    
     blank_sentence = re.sub(r'\b' + re.escape(answer) + r'\b', '_____', sentence, flags=re.IGNORECASE)
-    all_words = [w.strip(".,;").lower() for s in st.session_state.topics_today.values() for w in s.split()]
+    
+    all_words = [w.strip(".,;").lower() for s in st.session_state.topics_today.values() for w in s.split() if w.strip(".,;")]
     unique_words = list(set(w for w in all_words if len(w)>3 and w.lower()!=answer.lower()))
-    distractors = random.sample(unique_words, min(3,len(unique_words)))
+    
+    # FIX 3: Safety check before using random.sample for distractors
+    if not unique_words:
+        distractors = []
+    else:
+        distractors = random.sample(unique_words, min(3,len(unique_words)))
+        
     options = [answer] + [d.capitalize() for d in distractors]
     random.shuffle(options)
+    
     return blank_sentence + "?", answer, options
 
 def generate_quiz_questions(topics_dict, total_questions=10):
     questions=[]
     all_summaries=list(topics_dict.items())
     topic_idx=0
+    # Add a loop limit to prevent infinite loops if no questions can be generated
     while len(questions)<total_questions and all_summaries and topic_idx<100*len(all_summaries):
         topic, summary = all_summaries[topic_idx % len(all_summaries)]
         q = generate_fill_in_blank(summary)
@@ -183,7 +202,8 @@ def get_weather(city):
 # ------------------------------
 # Sidebar Navigation (with Rainbow Heading)
 # ------------------------------
-st.sidebar.markdown("<h1>📚 Navigate</h1>", unsafe_allow_html=True)
+# Apply rainbow CSS effect to the sidebar heading using H1
+st.sidebar.markdown("<h1>📚 Navigate</h1>", unsafe_allow_html=True) 
 page=st.sidebar.radio(
     "",
     ["🏠 Home","🧠 Explain Topic","🎯 Quiz Generator","🃏 Flashcards",
@@ -206,7 +226,7 @@ elif page=="🧠 Explain Topic":
         st.markdown(summary)
         st.session_state.topics_today[topic]=summary
 
-# FIXED: Changed from "📝 Quiz" to "🎯 Quiz Generator"
+# FIXED: Quiz Generator Page Logic using the correct sidebar label
 elif page == "🎯 Quiz Generator":
     st.markdown("<h1>📝 Dynamic Quiz!</h1>", unsafe_allow_html=True)
     if not st.session_state.topics_today:
@@ -226,12 +246,11 @@ elif page == "🎯 Quiz Generator":
             st.markdown(f"**Topic:** {q['topic']}")
             st.markdown(f"**Q:** {q['question']}")
 
-            # Use st.form for better control over radio button interaction
+            # Use st.form for reliable submission handling
             with st.form(key=f"quiz_form_{current_q_index}"):
                 selected_option = st.radio("Select your answer:", q['options'], key=f"quiz_radio_{current_q_index}")
                 attempt_key = f"q_attempt_{current_q_index}"
                 
-                # Initialize attempt state if necessary
                 if attempt_key not in st.session_state:
                     st.session_state[attempt_key] = {"attempted": False, "correct": False, "answer": q['answer']}
                 
@@ -258,7 +277,6 @@ elif page == "🎯 Quiz Generator":
             st.markdown("---")
             col1, col2 = st.columns(2)
             with col1:
-                # Use a unique key for button in the session state
                 if st.button("⬅️ Previous", key="prev_q"):
                     st.session_state.quiz_index = (st.session_state.quiz_index - 1) % len(st.session_state.quiz_questions)
                     st.rerun()
