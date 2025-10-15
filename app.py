@@ -203,34 +203,72 @@ elif page=="🧠 Explain Topic":
         st.markdown(summary)
         st.session_state.topics_today[topic]=summary
 
-elif page=="🎯 Quiz Generator":
-    if not st.session_state.topics_today: st.info("⚠️ Explore topics first!")
+elif page == "📝 Quiz":
+    st.markdown("<h1>📝 Dynamic Quiz!</h1>", unsafe_allow_html=True)
+    if not st.session_state.topics_today:
+        st.info("Explore topics first (on the 'Topic Summary' page) to generate quiz questions!")
     else:
-        if "dynamic_quiz" not in st.session_state: st.session_state.dynamic_quiz=[]
-        if not st.session_state.dynamic_quiz:
-            st.session_state.dynamic_quiz = generate_quiz_questions(st.session_state.topics_today, total_questions=10)
-        q_idx=st.session_state.get("quiz_index",0)%len(st.session_state.dynamic_quiz)
-        q_data=st.session_state.dynamic_quiz[q_idx]
-        st.markdown(f"**Question {q_idx+1}/{len(st.session_state.dynamic_quiz)}**")
-        st.markdown(f"**{q_data['question']}**")
-        choice_selected=st.radio("Select your answer:", q_data["options"], key=f"quiz_{q_idx}")
-        attempt_key=f"attempt_{q_idx}"
-        if attempt_key not in st.session_state: st.session_state[attempt_key]={"done":False,"correct":False}
-        if st.button("Submit Answer", key=f"submit_{q_idx}", disabled=st.session_state[attempt_key]["done"]):
-            st.session_state[attempt_key]["done"]=True
-            st.session_state["quiz_count"]+=1
-            if choice_selected==q_data["answer"]:
-                st.session_state["quiz_score"]+=1
-                st.session_state[attempt_key]["correct"]=True
-                st.success("✅ Correct!")
-            else:
-                st.error(f"❌ Wrong! Correct answer: {q_data['answer']}")
-        col1,col2=st.columns(2)
-        with col1:
-            if st.button("⬅️ Previous", key="prev_q"): st.session_state["quiz_index"]=(q_idx-1)%len(st.session_state.dynamic_quiz)
-        with col2:
-            if st.button("➡️ Next", key="next_q"): st.session_state["quiz_index"]=(q_idx+1)%len(st.session_state.dynamic_quiz)
-        st.markdown(f"**Overall Score:** {st.session_state['quiz_score']}/{st.session_state['quiz_count']}")
+        if not st.session_state.quiz_questions:
+            st.session_state.quiz_questions = generate_quiz_questions(st.session_state.topics_today, total_questions=10)
+            st.session_state.quiz_index = 0
+            
+        if not st.session_state.quiz_questions:
+            st.warning("⚠️ Could not generate quiz questions from the topics covered. Try exploring more detailed topics.")
+        else:
+            current_q_index = st.session_state.quiz_index % len(st.session_state.quiz_questions)
+            q = st.session_state.quiz_questions[current_q_index]
+            
+            st.markdown(f"**Question {current_q_index + 1} of {len(st.session_state.quiz_questions)}**")
+            st.markdown(f"**Topic:** {q['topic']}")
+            st.markdown(f"**Q:** {q['question']}")
+
+            selected_option = st.radio("Select your answer:", q['options'], key=f"quiz_radio_{current_q_index}")
+            attempt_key = f"q_attempt_{current_q_index}"
+            if attempt_key not in st.session_state:
+                st.session_state[attempt_key] = {"attempted": False, "correct": False, "answer": q['answer']}
+            
+            if st.session_state[attempt_key]["attempted"]:
+                if st.session_state[attempt_key]["correct"]:
+                    st.success("🎉 Correct!")
+                else:
+                    st.error(f"❌ Wrong! Correct answer: {q['answer']}")
+            
+            if st.button("Submit Answer", key=f"submit_{current_q_index}", disabled=st.session_state[attempt_key]["attempted"]):
+                if selected_option and not st.session_state[attempt_key]["attempted"]:
+                    st.session_state.quiz_count += 1
+                    st.session_state[attempt_key]["attempted"] = True
+                    if selected_option == q['answer']:
+                        st.session_state.quiz_score += 1
+                        st.session_state[attempt_key]["correct"] = True
+                        st.success("🎉 Correct!")
+                    else:
+                        st.error(f"❌ Wrong! Correct answer: {q['answer']}")
+                    st.rerun()
+            
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("⬅️ Previous", key="prev_q"):
+                    st.session_state.quiz_index = (st.session_state.quiz_index - 1) % len(st.session_state.quiz_questions)
+                    st.rerun()
+            with col2:
+                if st.button("➡️ Next", key="next_q"):
+                    st.session_state.quiz_index = (st.session_state.quiz_index + 1) % len(st.session_state.quiz_questions)
+                    st.rerun()
+            
+            st.markdown("---")
+            st.info(f"Overall Score: {st.session_state.quiz_score}/{st.session_state.quiz_count}")
+
+            if st.button("Reset Quiz", key="reset_quiz_all"):
+                st.session_state.quiz_questions = []
+                st.session_state.quiz_index = 0
+                st.session_state.quiz_score = 0
+                st.session_state.quiz_count = 0
+                for key in list(st.session_state.keys()):
+                    if key.startswith("q_attempt_"):
+                        del st.session_state[key]
+                st.rerun()
+
 
 elif page=="🃏 Flashcards":
     if not st.session_state.topics_today: st.info("⚠️ Explore topics first!")
@@ -342,5 +380,6 @@ elif page == "📊 Daily Dashboard":
 elif page=="📝 Notes":
     note=st.text_area("Write your study notes here:")
     if st.button("Save Note"): st.success("📝 Note saved!")
+
 
 
