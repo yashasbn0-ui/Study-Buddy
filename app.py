@@ -7,8 +7,6 @@ import requests
 import re
 import random
 import textwrap
-import time
-from random import choice, shuffle, sample
 
 # ------------------------------
 # Streamlit Config
@@ -72,11 +70,8 @@ if "timer_end_time" not in st.session_state: st.session_state.timer_end_time = N
 # Helper Functions
 # ------------------------------
 def fetch_wikipedia_long(topic, sentences=15):
-    try: 
-        wikipedia.set_lang("en")
-        return wikipedia.summary(topic, sentences=sentences)
-    except: 
-        return ""
+    try: wikipedia.set_lang("en"); return wikipedia.summary(topic, sentences=sentences)
+    except: return ""
 
 def fetch_wolfram_long(topic):
     for _ in range(len(wolfram_keys)):
@@ -126,27 +121,34 @@ def generate_fill_in_blank(summary):
     if not sentences: return None
     suitable_sentences = [s for s in sentences if len(s.split()) > 8]
     if not suitable_sentences: return None
-    sentence = choice(suitable_sentences)
+    sentence = random.choice(suitable_sentences)
     words = [w.strip(".,;") for w in sentence.split()]
-    potential_answers = [w for w in words if w and w[0].isupper() and w not in ["A","The","An","In","On","Of","For","With","He","She","It"] and w != words[0]]
+    potential_answers = [w for w in words if w[0].isupper() and w not in ["A","The","An","In","On","Of","For","With","He","She","It"] and w != words[0]]
     if not potential_answers: potential_answers = [w for w in words if len(w) > 5]
     if not potential_answers: return None
-    answer = choice(potential_answers)
+    answer = random.choice(potential_answers)
     blank_sentence = re.sub(r'\b' + re.escape(answer) + r'\b', '_____', sentence, flags=re.IGNORECASE)
     all_words = [w.strip(".,;").lower() for s in st.session_state.topics_today.values() for w in s.split()]
-    unique_words = list(set(w for w in all_words if len(w) > 3 and w.lower() != answer.lower()))
-    distractors = sample(unique_words, min(3, len(unique_words)))
-    distractor_options = [d.capitalize() for d in distractors]
-    options = [answer] + distractor_options
-    shuffle(options)
+    unique_words = list(set(w for w in all_words if len(w)>3 and w.lower()!=answer.lower()))
+    distractors = random.sample(unique_words, min(3,len(unique_words)))
+    options = [answer] + [d.capitalize() for d in distractors]
+    random.shuffle(options)
     return blank_sentence + "?", answer, options
 
-def generate_quiz_from_summary(summary, topic):
-    q = generate_fill_in_blank(summary)
-    if q:
-        blank_sentence, answer, options = q
-        return [{"topic": topic, "q": blank_sentence, "ans": answer, "opts": options}]
-    return []
+def generate_quiz_questions(topics_dict, total_questions=10):
+    questions=[]
+    all_summaries=list(topics_dict.items())
+    topic_idx=0
+    while len(questions)<total_questions and all_summaries and topic_idx<100*len(all_summaries):
+        topic, summary = all_summaries[topic_idx % len(all_summaries)]
+        q = generate_fill_in_blank(summary)
+        if q:
+            blank_sentence, answer, options = q
+            if not any(d["question"] == blank_sentence for d in questions):
+                questions.append({"topic":topic,"question":blank_sentence,"answer":answer,"options":options})
+        topic_idx += 1
+    random.shuffle(questions)
+    return questions[:total_questions]
 
 def generate_flashcards_from_summary(summary, topic):
     lines = summary.split(".")
@@ -161,11 +163,8 @@ def evaluate_expression(expr):
     except: return "⚠️ Invalid expression."
 
 def convert_units(value, from_unit, to_unit):
-    conversions = {
-        ("m","cm"):100,("cm","m"):0.01,("kg","g"):1000,("g","kg"):0.001,
-        ("hr","min"):60,("min","hr"):1/60,("m","km"):0.001,("km","m"):1000,
-        ("ft","m"):0.3048,("m","ft"):3.28084,("in","cm"):2.54,("cm","in"):0.393701
-    }
+    conversions = {("m","cm"):100,("cm","m"):0.01,("kg","g"):1000,("g","kg"):0.001,("hr","min"):60,("min","hr"):1/60,
+                   ("m","km"):0.001,("km","m"):1000,("ft","m"):0.3048,("m","ft"):3.28084,("in","cm"):2.54,("cm","in"):0.393701}
     if (from_unit,to_unit) in conversions: return f"{value} {from_unit} = {value*conversions[(from_unit,to_unit)]:.4f} {to_unit}"
     return "⚠️ Conversion not supported."
 
@@ -188,7 +187,7 @@ page=st.sidebar.radio(
      "🧮 Calculator","🔄 Unit Converter","🌦 Weather","🧘 Meditation Timer","📊 Daily Dashboard","📝 Notes"]
 )
 
-st.markdown("<h1> Study Buddy", unsafe_allow_html=True)
+st.markdown("<h1> Study Buddy</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align:center;'>Your smart academic assistant for learning made simple.</h3>", unsafe_allow_html=True)
 
 # ------------------------------
@@ -209,33 +208,28 @@ elif page=="🎯 Quiz Generator":
     else:
         if "dynamic_quiz" not in st.session_state: st.session_state.dynamic_quiz=[]
         if not st.session_state.dynamic_quiz:
-            questions=[]
-            for topic, summary in st.session_state.topics_today.items():
-                questions.extend(generate_quiz_from_summary(summary, topic))
-            shuffle(questions)
-            st.session_state.dynamic_quiz=questions
-
+            st.session_state.dynamic_quiz = generate_quiz_questions(st.session_state.topics_today, total_questions=10)
         q_idx=st.session_state.get("quiz_index",0)%len(st.session_state.dynamic_quiz)
         q_data=st.session_state.dynamic_quiz[q_idx]
         st.markdown(f"**Question {q_idx+1}/{len(st.session_state.dynamic_quiz)}**")
-        st.markdown(f"**{q_data['q']}**")
-        choice_selected=st.radio("Select your answer:", q_data["opts"], key=f"quiz_{q_idx}")
+        st.markdown(f"**{q_data['question']}**")
+        choice_selected=st.radio("Select your answer:", q_data["options"], key=f"quiz_{q_idx}")
         attempt_key=f"attempt_{q_idx}"
         if attempt_key not in st.session_state: st.session_state[attempt_key]={"done":False,"correct":False}
         if st.button("Submit Answer", key=f"submit_{q_idx}", disabled=st.session_state[attempt_key]["done"]):
             st.session_state[attempt_key]["done"]=True
             st.session_state["quiz_count"]+=1
-            if choice_selected==q_data["ans"]:
+            if choice_selected==q_data["answer"]:
                 st.session_state["quiz_score"]+=1
                 st.session_state[attempt_key]["correct"]=True
                 st.success("✅ Correct!")
-            else: st.error(f"❌ Wrong! Correct answer: {q_data['ans']}")
-            st.experimental_rerun()
+            else:
+                st.error(f"❌ Wrong! Correct answer: {q_data['answer']}")
         col1,col2=st.columns(2)
         with col1:
-            if st.button("⬅️ Previous", key="prev_q"): st.session_state["quiz_index"]=(q_idx-1)%len(st.session_state.dynamic_quiz); st.experimental_rerun()
+            if st.button("⬅️ Previous", key="prev_q"): st.session_state["quiz_index"]=(q_idx-1)%len(st.session_state.dynamic_quiz)
         with col2:
-            if st.button("➡️ Next", key="next_q"): st.session_state["quiz_index"]=(q_idx+1)%len(st.session_state.dynamic_quiz); st.experimental_rerun()
+            if st.button("➡️ Next", key="next_q"): st.session_state["quiz_index"]=(q_idx+1)%len(st.session_state.dynamic_quiz)
         st.markdown(f"**Overall Score:** {st.session_state['quiz_score']}/{st.session_state['quiz_count']}")
 
 elif page=="🃏 Flashcards":
@@ -265,53 +259,39 @@ elif page=="🔄 Unit Converter":
 elif page=="🌦 Weather":
     city=st.text_input("Enter city name:")
     if city: st.write(get_weather(city))
-        
+
 elif page=="🧘 Meditation Timer":
     minutes = st.number_input("Set Timer (minutes):", min_value=1, max_value=120, value=5)
     placeholder = st.empty()
     progress_bar = st.progress(0)
 
-    if "timer_start_time" not in st.session_state:
-        st.session_state.timer_start_time = None
-
+    # Start timer button
     if st.button("Start Timer") and not st.session_state.timer_running:
-        st.session_state.timer_start_time = datetime.datetime.now()
         st.session_state.timer_end_time = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
         st.session_state.timer_running = True
 
     if st.session_state.timer_running:
         remaining = (st.session_state.timer_end_time - datetime.datetime.now()).total_seconds()
         total_seconds = minutes * 60
-
         if remaining > 0:
             m, s = divmod(int(remaining), 60)
             placeholder.markdown(f"## ⏰ {m:02d}:{s:02d}")
-            progress = int((total_seconds - remaining) / total_seconds * 100)
-            progress_bar.progress(progress)
-            time.sleep(1)
-            st.experimental_rerun()  # smooth update
+            progress_bar.progress(int((total_seconds - remaining)/total_seconds*100))
+            st.experimental_rerun()
         else:
-            placeholder.markdown(f"## ⏰ 00:00")
+            placeholder.markdown("## ⏰ 00:00")
             progress_bar.progress(100)
             st.balloons()
             st.success(f"✅ You meditated for {minutes} minutes!")
-
-            # Update session state
             st.session_state.meditation_minutes += minutes
             today = str(datetime.date.today())
             found=False
             for entry in st.session_state.meditation_history:
-                if entry["date"] == today:
-                    entry["minutes"] += minutes
-                    found=True
-            if not found:
-                st.session_state.meditation_history.append({"date": today, "minutes": minutes})
-
-            # Reset timer
-            st.session_state.timer_running = False
-            st.session_state.timer_start_time = None
-            st.session_state.timer_end_time = None
-
+                if entry["date"]==today:
+                    entry["minutes"]+=minutes; found=True
+            if not found: st.session_state.meditation_history.append({"date":today,"minutes":minutes})
+            st.session_state.timer_running=False
+            st.session_state.timer_end_time=None
 
 elif page=="📊 Daily Dashboard":
     st.subheader("📊 Daily Dashboard")
@@ -324,4 +304,3 @@ elif page=="📊 Daily Dashboard":
 elif page=="📝 Notes":
     note=st.text_area("Write your study notes here:")
     if st.button("Save Note"): st.success("📝 Note saved!")
-
